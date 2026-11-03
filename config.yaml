@@ -1,9 +1,12 @@
 server:
   listen: "0.0.0.0:32920"
   read_header_timeout: 10s
-  # 同时配置 tls_cert 与 tls_key 即启用 HTTPS（TLS 在本网关终止）。
-  # tls_cert: "cert.pem"
-  # tls_key: "key.pem"
+  # 同时配置 tls_cert 与 tls_key 即启用 TLS（在本网关终止）。
+  # TLS 按连接嗅探：HTTPS 请求与 MC 等原始 TCP 连接可共用本端口，
+  # 互不影响。
+  # Let's Encrypt 证书（certbot 签发后路径，域名按实际修改）。
+  tls_cert: "./zhuyuqinlan.top.crt"
+  tls_key: "./zhuyuqinlan.top.key"
 
 http:
   connect_timeout: 5s
@@ -16,11 +19,17 @@ backend: "mc.lanternwaves.fun:25565"
 
 # HTTP 路径前缀路由：连接首行是 HTTP 请求且路径命中前缀时走
 # HTTP 反代，其余连接全部透传到 backend。
+# 注意：键是路径前缀，必须以 "/" 开头且引号内不要有空格，
+# 否则路由永远匹配不上（未命中会透传到默认 MC 后端，HTTP 请求会得到 502）。
 routes:
   http:
-    "/zhuyuqinlan-files":
-      backend: "127.0.0.1:8000"
-      strip_prefix: true
+    "/zhuyuqinlan-files-web":
+      backend: "127.0.0.1:9002"
+      strip_prefix: false
+    # 短路径别名：与上一条指向同一后端。
+    "/zhuyuqin-files-web":
+      backend: "127.0.0.1:9002"
+      strip_prefix: false
     "/zhuyuqinlan-blog":
       backend: "127.0.0.1:8812"
       strip_prefix: true
