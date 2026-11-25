@@ -42,7 +42,7 @@ func (s *Server) listenAndServe() error {
 		return fmt.Errorf("gateway: listen on %s: %w", s.cfg.Server.Listen, err)
 	}
 	if s.cfg.Server.TLSEnabled() {
-		cert, cerr := tls.LoadX509KeyPair(s.cfg.Server.TLSCertFile, s.cfg.Server.TLSKeyFile)
+		reloader, cerr := newCertReloader(s.cfg.Server.TLSCertFile, s.cfg.Server.TLSKeyFile)
 		if cerr != nil {
 			_ = ln.Close()
 			return fmt.Errorf("gateway: load tls cert: %w", cerr)
@@ -50,9 +50,11 @@ func (s *Server) listenAndServe() error {
 		// 不在 Listener 层整体包装 TLS：每条连接进入处理流程后按
 		// 首字节嗅探是否 TLS 握手（detectTLS），使同一端口同时
 		// 服务 HTTPS 与原始 TCP（非 TLS 连接不受影响）。
+		// GetCertificate 在每次 TLS 握手时按文件 mtime/size 热重载
+		// 证书：替换文件（含先删后写）后无需重启，新连接即用新证书。
 		s.tlsConfig = &tls.Config{ //nolint:gosec // MinVersion 显式设置
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
+			GetCertificate: reloader.GetCertificate,
+			MinVersion:     tls.VersionTLS12,
 		}
 	}
 	// 与 Shutdown 互斥：若关闭流程已开始，立即退出，避免监听器
