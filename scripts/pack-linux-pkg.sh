@@ -126,7 +126,8 @@ Release:        1%{?dist}
 Summary:        Lightweight HTTP(S) reverse proxy gateway
 License:        MIT
 URL:            https://github.com/zhuyuqinlan/tcpgw
-BuildArch:      $rpm_arch
+# 注意：spec 里不写 BuildArch，由 rpmbuild --target 决定架构，
+# 否则在异构宿主上交叉构建会报 No compatible architectures found for build。
 Requires:       systemd
 
 %description
@@ -164,10 +165,11 @@ getent passwd tcpgw >/dev/null 2>&1 || \\
 # 配置文件默认保留，仅在 rpm -e --nodeps 之外的显式卸载场景由用户决定。
 EOF
 
+  # --target：允许在任意宿主架构上交叉构建（如 x86_64 宿主打 aarch64 包）。
   rpmbuild --define "_topdir $rpmroot" --define "_rpmdir $(dirname "$outfile")" \
-    -bb "$rpmroot/SPECS/tcpgw.spec"
+    --target "$rpm_arch" -bb "$rpmroot/SPECS/tcpgw.spec"
   # rpmbuild 输出到 <outdir>/<arch>/tcpgw-<ver>.<arch>.rpm，移动到目标名。
-  built="$(find "$(dirname "$outfile")" -name "tcpgw-$pkg_version-1*.rpm" -newer "$binfile" | head -1)"
+  built="$(find "$(dirname "$outfile")" -name "tcpgw-$pkg_version-1*.rpm" -newer "$binfile" ! -path "*/tcpgw.spec*" | head -1)"
   [ -n "$built" ] || built="$(find "$(dirname "$outfile")" -name "tcpgw-*.rpm" | head -1)"
   [ -n "$built" ] || die "rpmbuild produced no rpm"
   if [ "$built" != "$outfile" ]; then
