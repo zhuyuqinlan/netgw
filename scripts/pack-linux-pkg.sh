@@ -5,7 +5,7 @@
 #   arch: amd64 | arm64
 #
 # 安装布局:
-#   /usr/lib/netgw/netgw
+#   /usr/sbin/netgw
 #   /etc/netgw/config.yaml          <- conffile/noreplace，升级不覆盖
 #   /usr/share/doc/netgw/README.md
 #   /usr/share/doc/netgw/copyright  (MIT)
@@ -36,7 +36,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 pkgroot="$work/pkg"
-install -Dm755 "$binfile"          "$pkgroot/usr/lib/netgw/netgw"
+install -Dm755 "$binfile"          "$pkgroot/usr/sbin/netgw"
 install -Dm644 "$REPO_ROOT/config.yaml" "$pkgroot/etc/netgw/config.yaml"
 install -Dm644 "$REPO_ROOT/README.md"   "$pkgroot/usr/share/doc/netgw/README.md"
 install -Dm644 "$REPO_ROOT/LICENSE"     "$pkgroot/usr/share/doc/netgw/copyright"
@@ -137,16 +137,16 @@ TLS termination and raw TCP passthrough on the same port.
 %prep
 %build
 %install
-mkdir -p %{buildroot}/usr/lib/netgw %{buildroot}/etc/netgw \
+mkdir -p %{buildroot}/usr/sbin %{buildroot}/etc/netgw \
          %{buildroot}/usr/share/doc/netgw %{buildroot}/usr/lib/systemd/system
-install -m755 "$pkgroot/usr/lib/netgw/netgw"              %{buildroot}/usr/lib/netgw/netgw
+install -m755 "$pkgroot/usr/sbin/netgw"                   %{buildroot}/usr/sbin/netgw
 install -m644 "$pkgroot/etc/netgw/config.yaml"            %{buildroot}/etc/netgw/config.yaml
 install -m644 "$pkgroot/usr/share/doc/netgw/README.md"    %{buildroot}/usr/share/doc/netgw/README.md
 install -m644 "$pkgroot/usr/share/doc/netgw/copyright"    %{buildroot}/usr/share/doc/netgw/copyright
 install -m644 "$pkgroot/usr/lib/systemd/system/netgw.service" %{buildroot}/usr/lib/systemd/system/netgw.service
 
 %files
-/usr/lib/netgw/netgw
+/usr/sbin/netgw
 %config(noreplace) /etc/netgw/config.yaml
 /usr/share/doc/netgw/README.md
 /usr/share/doc/netgw/copyright

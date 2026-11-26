@@ -93,7 +93,8 @@ for a in amd64 arm64; do
   ver_meta="$(dpkg-deb -f "$p" Version)"
   [ "$ver_meta" = "$VERSION" ] || { echo "verify: FAIL: $p Version=$ver_meta want $VERSION" >&2; fail=1; }
   listing="$(dpkg-deb -c "$p")"
-  echo "$listing" | grep -q "usr/lib/netgw/netgw" || { echo "verify: FAIL: $p missing binary" >&2; fail=1; }
+  echo "$listing" | grep -q "usr/sbin/netgw" || { echo "verify: FAIL: $p missing binary" >&2; fail=1; }
+  echo "$listing" | grep -q "usr/lib/netgw" && { echo "verify: FAIL: $p installs binary under /usr/lib (lib_t, SELinux)" >&2; fail=1; }
   echo "$listing" | grep -q "usr/share/doc/netgw/copyright" || { echo "verify: FAIL: $p missing copyright" >&2; fail=1; }
   echo "$listing" | grep -q "usr/lib/systemd/system/netgw.service" || { echo "verify: FAIL: $p missing service" >&2; fail=1; }
   echo "$listing" | grep -qE "usr/bin|usr/local" && { echo "verify: FAIL: $p installs to /usr/bin" >&2; fail=1; }
@@ -114,7 +115,8 @@ for a in x86_64 aarch64; do
   ver_meta="$(rpm -qp --qf '%{VERSION}' "$p" 2>/dev/null || true)"
   [ "$ver_meta" = "$VERSION" ] || { echo "verify: FAIL: $p VERSION=$ver_meta want $VERSION" >&2; fail=1; }
   listing="$(rpm -qlp "$p" 2>/dev/null)"
-  echo "$listing" | grep -q "/usr/lib/netgw/netgw" || { echo "verify: FAIL: $p missing binary" >&2; fail=1; }
+  echo "$listing" | grep -q "/usr/sbin/netgw" || { echo "verify: FAIL: $p missing binary" >&2; fail=1; }
+  echo "$listing" | grep -q "/usr/lib/netgw" && { echo "verify: FAIL: $p installs binary under /usr/lib (lib_t, SELinux)" >&2; fail=1; }
   echo "$listing" | grep -q "/usr/lib/systemd/system/netgw.service" || { echo "verify: FAIL: $p missing service" >&2; fail=1; }
   echo "$listing" | grep -qE "/usr/bin|/usr/local" && { echo "verify: FAIL: $p installs to /usr/bin" >&2; fail=1; }
   noreplace="$(rpm -qp --qf '[%{FILENAMES} %{FILEFLAGS}\n]' "$p" 2>/dev/null | grep 'etc/netgw/config.yaml' | awk '{print $2}')"

@@ -37,6 +37,8 @@ scripts/            构建、打包、产物校验
   （已 gitignore，**不会自动加载**，需 `-config config.local.yaml`）。
 - DEB/RPM 安装后以 `netgw` 用户运行且 `ProtectHome=true`，TLS 证书必须放在
   可读路径并使用绝对路径（如 `/etc/netgw/`）。
+- 二进制安装在 `/usr/sbin/netgw`（SELinux `bin_t`）。不要改到 `/usr/lib`：
+  该目录为 `lib_t`，systemd 会以 `init_t` 运行并被 SELinux 拒绝网络访问。
 - RPM 脚本内联 `systemctl`，不要使用 `%systemd_post` 等宏：CI 在 Ubuntu 上
   构建，构建机没有 systemd-rpm-macros，宏会以原文留在脚本里导致安装失败。
 - 修改配置语义时必须同步：`internal/config` 校验、README、默认模板

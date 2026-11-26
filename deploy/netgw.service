@@ -9,8 +9,9 @@ Type=simple
 User=netgw
 Group=netgw
 # 通过绝对路径启动；配置使用系统级 /etc/netgw/config.yaml。
-ExecStart=/usr/lib/netgw/netgw -config /etc/netgw/config.yaml
-WorkingDirectory=/usr/lib/netgw
+# 二进制安装在 /usr/sbin（SELinux 标签为 bin_t），以 unconfined_service_t
+# 运行；不要放到 /usr/lib（lib_t 会让服务以 init_t 运行并被拒绝网络访问）。
+ExecStart=/usr/sbin/netgw -config /etc/netgw/config.yaml
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536

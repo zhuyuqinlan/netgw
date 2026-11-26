@@ -59,7 +59,7 @@ sudo rpm -i netgw-<版本>-linux-amd64.rpm    # RHEL / Fedora / SUSE
 安装布局：
 
 ```text
-/usr/lib/netgw/netgw                  可执行文件
+/usr/sbin/netgw                       可执行文件
 /etc/netgw/config.yaml                系统级配置（升级不覆盖）
 /usr/share/doc/netgw/                 文档与 MIT 协议
 /usr/lib/systemd/system/netgw.service systemd 服务单元
@@ -67,6 +67,9 @@ sudo rpm -i netgw-<版本>-linux-amd64.rpm    # RHEL / Fedora / SUSE
 
 - 仅 DEB/RPM 注册 systemd 服务，不创建 `/usr/bin` 软链接。
 - 程序以专用非 root 用户 `netgw` 运行。
+- 二进制安装在 `/usr/sbin/netgw`（SELinux 标签 `bin_t`）。**不要**放到
+  `/usr/lib`：该目录是 `lib_t`，systemd 启动后会停留在 `init_t` 域，
+  SELinux 会拒绝 `name_connect`/`name_bind`（如连接后端 8080）。
 - 安装后自动 enable（不自动 start），启动前按需修改 `/etc/netgw/config.yaml`。
 - 安装包自带通用模板（监听 `0.0.0.0:8000`、无 TLS）；升级时已有配置不被覆盖。
   TLS 证书请放在服务账号可读的位置（如 `/etc/netgw/`，`chown root:netgw`、`chmod 640`）
@@ -179,7 +182,7 @@ Release 说明自动汇总上个 Tag 以来的提交；发行包统一命名为 
 ## systemd 手动部署
 
 ```bash
-sudo cp netgw-<版本>-linux-amd64 /usr/local/bin/netgw
+sudo install -m755 netgw-<版本>-linux-amd64 /usr/sbin/netgw
 sudo mkdir -p /etc/netgw && sudo cp config.yaml /etc/netgw/
 sudo cp deploy/netgw.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -209,6 +212,7 @@ netgw/
 | 返回 502 | 后端未启动或不可达，检查 `backend` 与 `routes.http` |
 | HTTPS 无法访问 | 确认证书/私钥均已配置且服务账号可读、证书未过期 |
 | `bind: permission denied` | 端口 < 1024 需 `CAP_NET_BIND_SERVICE` 或改用高端口 |
+| SELinux 拒绝 `name_connect` / `name_bind` | 二进制必须位于 `/usr/sbin`（`bin_t`）；确认 `ls -Z /usr/sbin/netgw`，旧版装在 `/usr/lib/netgw` 的请升级到 1.2.1+ |
 
 日志通过 `log/slog` 输出到 stderr，不记录请求体等敏感数据。
 
