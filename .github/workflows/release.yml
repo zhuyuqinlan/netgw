@@ -1,0 +1,198 @@
+name: Release
+
+# 推送 v* Tag 时自动构建、打包并发布 GitHub Release。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # 创建 Release 和上传产物所需的最小权限
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          check-latest: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # 单平台失败时保留其他平台日志便于排查
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            format: zip
+          - goos: windows
+            goarch: arm64
+            format: zip
+          - goos: linux
+            goarch: amd64
+            format: "zip deb rpm"
+          - goos: linux
+            goarch: arm64
+            format: "zip deb rpm"
+          - goos: darwin
+            goarch: amd64
+            format: zip
+          - goos: darwin
+            goarch: arm64
+            format: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          check-latest: true
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        run: |
+          mkdir -p dist/bin
+          ./scripts/build.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" \
+            "${{ steps.version.outputs.version }}" \
+            "dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
+
+      - name: Verify binary architecture
+        run: |
+          bin="dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          file "$bin"
+          case "${{ matrix.goarch }}" in
+            amd64) file "$bin" | grep -qiE "x86-64|x86_64" || { echo "::error::arch mismatch"; exit 1; } ;;
+            arm64) file "$bin" | grep -qiE "aarch64|arm64" || { echo "::error::arch mismatch"; exit 1; } ;;
+          esac
+
+      - name: Pack ZIP
+        if: contains(matrix.format, 'zip')
+        run: |
+          ./scripts/pack-zip.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" \
+            "${{ steps.version.outputs.version }}" \
+            "dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" \
+            "dist/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
+
+      - name: Pack DEB
+        if: contains(matrix.format, 'deb')
+        run: |
+          ./scripts/pack-linux-pkg.sh deb "${{ matrix.goarch }}" \
+            "${{ steps.version.outputs.version }}" \
+            "dist/bin/tcpgw-linux-${{ matrix.goarch }}" \
+            "dist/tcpgw-linux-${{ matrix.goarch }}.deb"
+
+      - name: Pack RPM
+        if: contains(matrix.format, 'rpm')
+        run: |
+          sudo apt-get update && sudo apt-get install -y rpm
+          ./scripts/pack-linux-pkg.sh rpm "${{ matrix.goarch }}" \
+            "${{ steps.version.outputs.version }}" \
+            "dist/bin/tcpgw-linux-${{ matrix.goarch }}" \
+            "dist/tcpgw-linux-${{ matrix.goarch }}.rpm"
+
+      - name: List artifacts
+        run: ls -la dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/tcpgw-*
+          if-no-files-found: error
+          retention-days: 3
+
+  verify:
+    name: Verify artifacts
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Install verification tools
+        run: sudo apt-get update && sudo apt-get install -y rpm file zip unzip
+
+      - name: Verify artifacts
+        run: |
+          mkdir -p dist
+          mv artifacts/tcpgw-* dist/
+          ./scripts/verify-artifacts.sh dist
+
+      - name: Upload combined artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: dist/tcpgw-*
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: Create GitHub Release
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: dist
+
+      - name: Check existing release
+        id: existing
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release and upload
+        if: steps.existing.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: tcpgw ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }} # v1.0.0-rc1 → prerelease
+          files: dist/tcpgw-*
+          fail_on_unmatched_files: true
+
+      - name: Upload to existing release
+        if: steps.existing.outputs.exists == 'true'
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/tcpgw-* --repo "${{ github.repository }}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,14 +29,146 @@ HTTP 服务器语义处理请求：按路径前缀路由表转发到对应后端
 
 ```bash
 # 编译
-go build -o tcp-protocol-gateway ./cmd/gateway
+go build -o tcpgw ./cmd/gateway
 
 # 使用默认 config.yaml 启动
-./tcp-protocol-gateway -config config.yaml
+./tcpgw -config config.yaml
 
 # 运行测试
 go test ./...
 ```
+
+## 下载与安装
+
+发布版二进制可从 GitHub Release 下载（推送到 `v*` Tag 自动构建发布）：
+
+| 文件 | 平台 |
+|---|---|
+| `tcpgw-windows-amd64.zip` / `tcpgw-windows-arm64.zip` | Windows (64 位 / ARM) |
+| `tcpgw-linux-amd64.zip` / `tcpgw-linux-arm64.zip` | Linux 便携包 |
+| `tcpgw-linux-amd64.deb` / `tcpgw-linux-arm64.deb` | Debian/Ubuntu |
+| `tcpgw-linux-amd64.rpm` / `tcpgw-linux-arm64.rpm` | RHEL/Fedora/SUSE |
+| `tcpgw-darwin-amd64.zip` / `tcpgw-darwin-arm64.zip` | macOS (Intel / Apple Silicon) |
+
+### ZIP 便携式运行（Windows / Linux / macOS）
+
+ZIP 是独立的便携式发行包：解压即用，不注册 systemd 服务、不创建全局命令、
+不安装到系统目录，也不要求 `/etc` 写入权限。
+
+```bash
+unzip tcpgw-linux-amd64.zip
+cd tcpgw
+./tcpgw                        # 使用同目录 config.yaml
+./tcpgw -config /path/to/my.yaml   # 或显式指定配置
+```
+
+macOS 说明：首次运行时 Gatekeeper 可能提示"无法验证开发者"，因为二进制
+未经代码签名公证。可在"系统设置 → 隐私与安全性"中选择"仍要打开"，或执行：
+
+```bash
+xattr -d com.apple.quarantine tcpgw
+```
+
+### Linux DEB / RPM 安装
+
+```bash
+# Debian / Ubuntu
+sudo dpkg -i tcpgw-linux-amd64.deb
+# 或 apt 安装（自动解决依赖）
+sudo apt install ./tcpgw-linux-amd64.deb
+
+# RHEL / Fedora / SUSE
+sudo rpm -i tcpgw-linux-amd64.rpm
+# 或 dnf
+sudo dnf install ./tcpgw-linux-amd64.rpm
+```
+
+DEB/RPM 安装布局：
+
+```text
+/usr/lib/tcpgw/tcpgw                 可执行文件
+/etc/tcpgw/config.yaml               系统级配置（conffile/noreplace）
+/usr/share/doc/tcpgw/README.md       文档
+/usr/share/doc/tcpgw/copyright       MIT 协议
+/usr/lib/systemd/system/tcpgw.service systemd 服务单元
+```
+
+- 仅 DEB/RPM 安装注册 systemd 服务；不创建 `/usr/bin` 软链接、不注册 shell 命令，
+  一律通过绝对路径 `/usr/lib/tcpgw/tcpgw` 启动。
+- 程序以专用非 root 系统用户 `tcpgw` 运行。
+- 安装后服务自动 enable（不自动 start）；首次启动前请按需修改
+  `/etc/tcpgw/config.yaml`。
+
+### systemd 服务管理（仅 DEB/RPM 安装）
+
+```bash
+sudo systemctl start tcpgw
+sudo systemctl stop tcpgw
+sudo systemctl restart tcpgw
+sudo systemctl enable tcpgw      # 开机自启
+sudo systemctl disable tcpgw
+sudo systemctl status tcpgw
+journalctl -u tcpgw -f           # 查看日志
+```
+
+## 配置文件位置与加载优先级
+
+配置目录统一为 `tcpgw`：
+
+| 平台 | 用户级配置 | 系统级配置 |
+|---|---|---|
+| Windows | `%APPDATA%/tcpgw/config.yaml` | 无 |
+| Linux | `~/.config/tcpgw/config.yaml` | `/etc/tcpgw/config.yaml` |
+| macOS | `~/.config/tcpgw/config.yaml` | `/etc/tcpgw/config.yaml` |
+
+加载优先级（高到低）：
+
+1. 命令行 `-config` 显式指定的配置文件（必须存在，否则报错退出）。
+2. 用户级配置文件（存在即使用）。
+3. 系统级配置文件（仅当用户级不存在时读取）。
+4. 工作目录下的 `config.yaml`。
+5. 均不存在时使用内置默认值。
+
+规则：
+
+- 用户级配置优先于系统级配置；用户级不存在时才读取系统级配置。
+- 配置文件存在但解析失败时直接报错退出，不静默回退。
+- `tcpgw -install-config` 在用户级配置不存在时生成默认配置模板；
+  已存在时不覆盖。软件升级不会覆盖用户配置；卸载默认保留配置
+  （DEB 需 `apt purge` / RPM 需 `rpm -e` 之外的显式清除操作才删除配置）。
+
+## 升级与卸载
+
+```bash
+# ZIP：直接替换解压目录中的 tcpgw 可执行文件即可，配置不受影响。
+
+# DEB
+sudo dpkg -i tcpgw-linux-amd64.deb        # 升级（保留 /etc/tcpgw/config.yaml）
+sudo apt remove tcpgw                     # 卸载（默认保留配置）
+sudo apt purge tcpgw                      # 彻底清除（含配置）
+
+# RPM
+sudo rpm -U tcpgw-linux-amd64.rpm         # 升级（noreplace 保护配置）
+sudo rpm -e tcpgw                         # 卸载（默认保留配置）
+```
+
+## 从源码构建 / 跨平台构建
+
+```bash
+make build       # 本机
+make linux-amd64 # 交叉编译 Linux
+./scripts/build.sh darwin arm64 v1.0.0 out/tcpgw   # 任意平台组合
+```
+
+## 发布流程（维护者）
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+# GitHub Actions 自动：测试 → 6 平台构建 → 打包 ZIP/DEB/RPM →
+# 产物校验 → 创建 Release 并上传全部发行包
+```
+
 
 ## 配置
 
@@ -215,3 +347,9 @@ tcp-protocol-gateway/
 
 日志为 `log/slog` 文本格式输出到 stderr，包含监听地址、TLS 状态与后端错误；
 不记录请求体或任何敏感数据。
+
+## 开源协议
+
+本项目基于 [MIT License](./LICENSE) 开源发行。所有发行包（ZIP / DEB / RPM）
+均附带完整的 MIT 协议文本；DEB/RPM 安装后位于
+`/usr/share/doc/tcpgw/copyright`。

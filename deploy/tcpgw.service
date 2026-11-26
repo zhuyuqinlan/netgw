@@ -1,19 +1,21 @@
 [Unit]
-Description=HTTP(S) Reverse Proxy Gateway
-Documentation=file:/usr/local/share/doc/tcp-protocol-gateway/README.md
+Description=tcpgw HTTP(S) Reverse Proxy Gateway
+Documentation=file:/usr/share/doc/tcpgw/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=nobody
-Group=nobody
-ExecStart=/usr/local/bin/tcp-protocol-gateway -config /etc/tcp-protocol-gateway/config.yaml
+User=tcpgw
+Group=tcpgw
+# 通过绝对路径启动；配置使用系统级 /etc/tcpgw/config.yaml。
+ExecStart=/usr/lib/tcpgw/tcpgw -config /etc/tcpgw/config.yaml
+WorkingDirectory=/usr/lib/tcpgw
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
 
-# 安全加固：单二进制网关不需要任何特权与文件系统写入。
+# 安全加固：单二进制网关不需要特权与文件系统写入。
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -26,10 +28,10 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 
-# 日志交给 journald（journalctl -u tcp-protocol-gateway）。
+# 日志输出到 journald：journalctl -u tcpgw -f
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=tcp-protocol-gateway
+SyslogIdentifier=tcpgw
 
 [Install]
 WantedBy=multi-user.target
