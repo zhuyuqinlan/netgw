@@ -26,7 +26,7 @@ import (
 var version = "dev"
 
 // defaultConfigYAML 首次安装时写入用户配置目录的默认模板。
-// 与仓库根目录 config.yaml 保持同步（打包脚本会校验）。
+// 与仓库根目录 config.yaml 的默认值保持一致。
 var defaultConfigYAML = []byte(`# netgw 默认配置模板（首次安装生成，升级不会覆盖已有配置）。
 
 server:

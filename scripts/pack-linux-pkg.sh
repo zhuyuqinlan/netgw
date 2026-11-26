@@ -152,17 +152,26 @@ install -m644 "$pkgroot/usr/lib/systemd/system/netgw.service" %{buildroot}/usr/l
 /usr/share/doc/netgw/copyright
 /usr/lib/systemd/system/netgw.service
 
+# 说明：脚本内联 systemd 操作，不依赖构建机上的 systemd-rpm-macros。
+# （CI 在 Ubuntu 上构建时不会展开相关宏，宏原文会写进脚本导致安装失败。）
 %post
 getent passwd netgw >/dev/null 2>&1 || \\
   useradd --system --no-create-home --home /nonexistent --shell /sbin/nologin netgw 2>/dev/null || true
-%systemd_post netgw.service
+if [ "\$1" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
+  systemctl --no-reload enable netgw.service >/dev/null 2>&1 || true
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
 
 %preun
-%systemd_preun netgw.service
+if [ "\$1" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+  systemctl --no-reload disable --now netgw.service >/dev/null 2>&1 || true
+fi
 
 %postun
-%systemd_postun_with_restart netgw.service
-# 配置文件默认保留，仅在 rpm -e --nodeps 之外的显式卸载场景由用户决定。
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+# 配置文件默认保留，仅在显式卸载并自行删除 /etc/netgw 时清除。
 EOF
 
   # --target：允许在任意宿主架构上交叉构建（如 x86_64 宿主打 aarch64 包）。

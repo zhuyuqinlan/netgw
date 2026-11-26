@@ -66,6 +66,10 @@ sudo rpm -i netgw-linux-amd64.rpm      # RHEL / Fedora / SUSE
 - 仅 DEB/RPM 注册 systemd 服务，不创建 `/usr/bin` 软链接。
 - 程序以专用非 root 用户 `netgw` 运行。
 - 安装后自动 enable（不自动 start），启动前按需修改 `/etc/netgw/config.yaml`。
+- 安装包自带通用模板（监听 `0.0.0.0:8000`、无 TLS）；升级时已有配置不被覆盖。
+  TLS 证书请放在服务账号可读的位置（如 `/etc/netgw/`，`chown root:netgw`、`chmod 640`）
+  并在配置中使用**绝对路径**：服务以 `netgw` 用户运行且启用 `ProtectHome=true`，
+  不要指向 `/root` 或用户家目录。
 
 ```bash
 sudo systemctl start netgw
