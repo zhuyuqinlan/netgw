@@ -47,9 +47,9 @@ for f in tcpgw-windows-amd64.zip tcpgw-windows-arm64.zip \
 
   # 非 Windows ZIP：可执行权限 755。
   if echo "$f" | grep -qE "linux|darwin"; then
-    perms="$(zipinfo -l "$p" | awk '$4 ~ /tcpgw\/tcpgw$/ {print $1}')"
+    perms="$(zipinfo -l "$p" | awk "/tcpgw\\/tcpgw\$/ {print \$1}")"
     case "$perms" in
-      *rwxr-xr-x*|*-rwxr-xr-x*) ok "$f exec permission 755" ;;
+      *rwxr-xr-x*) ok "$f exec permission 755" ;;
       *) echo "verify: FAIL: $f exec permission = $perms" >&2; fail=1 ;;
     esac
   fi
@@ -59,19 +59,24 @@ done
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 arch_check() {
-  local z="$1" want="$2"
+  local z="$1"; shift
   unzip -q -o "$DIST/$z" tcpgw/tcpgw -d "$tmp/$z" 2>/dev/null || return 1
   local got
   got="$(file "$tmp/$z/tcpgw/tcpgw")"
-  case "$got" in
-    *$want*) ok "$z binary arch $want" ;;
-    *) echo "verify: FAIL: $z arch mismatch: $got" >&2; return 1 ;;
-  esac
+  local w
+  for w in "$@"; do
+    if grep -qiE "$w" <<<"$got"; then
+      ok "$z binary arch $w"
+      return 0
+    fi
+  done
+  echo "verify: FAIL: $z arch mismatch: $got" >&2
+  return 1
 }
-arch_check tcpgw-linux-amd64.zip "x86-64" || fail=1
-arch_check tcpgw-linux-arm64.zip "aarch64\|ARM aarch64" || fail=1
-arch_check tcpgw-darwin-amd64.zip "x86-64" || fail=1
-arch_check tcpgw-darwin-arm64.zip "aarch64\|ARM aarch64" || fail=1
+arch_check tcpgw-linux-amd64.zip "x86[-_]64" || fail=1
+arch_check tcpgw-linux-arm64.zip "aarch64" || fail=1
+arch_check tcpgw-darwin-amd64.zip "x86[-_]64" || fail=1
+arch_check tcpgw-darwin-arm64.zip "arm64" || fail=1
 
 # ---- 4. DEB ----
 for a in amd64 arm64; do
@@ -85,7 +90,10 @@ for a in amd64 arm64; do
   echo "$listing" | grep -q "usr/lib/systemd/system/tcpgw.service" || { echo "verify: FAIL: $p missing service" >&2; fail=1; }
   echo "$listing" | grep -qE "usr/bin|usr/local" && { echo "verify: FAIL: $p installs to /usr/bin" >&2; fail=1; }
   echo "$listing" | grep -q "etc/tcpgw/config.yaml" || { echo "verify: FAIL: $p missing config" >&2; fail=1; }
-  conffiles="$(dpkg-deb --control-show "$p" ./conffiles 2>/dev/null || true)"
+  # 兼容不同 dpkg-deb 版本：优先 --control-show，回退到解包 control.tar。
+  conffiles="$(dpkg-deb --control-show "$p" ./conffiles 2>/dev/null \
+    || dpkg-deb --fsys-tarfile "$p" 2>/dev/null | tar -xOzf - ./conffiles 2>/dev/null \
+    || dpkg-deb --info "$p" conffiles 2>/dev/null || true)"
   echo "$conffiles" | grep -q "/etc/tcpgw/config.yaml" || { echo "verify: FAIL: $p conffiles missing" >&2; fail=1; }
   ok "deb $a checks passed"
 done
