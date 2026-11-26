@@ -89,6 +89,17 @@ sudo rpm -U netgw-<版本>-linux-amd64.rpm    # RPM 升级
 sudo rpm -e netgw                    # RPM 卸载（保留配置）
 ```
 
+> **从 1.1.0 升级**：1.1.0 的 RPM `%preun` 里是未展开的 systemd 宏原文，
+> 升级时会报 `fg: 无任务控制` 并中止（此时执行的仍是旧包脚本，新包无法修复）。
+> 改用跳过脚本的方式升级，再手动启用服务：
+>
+> ```bash
+> sudo rpm -Uvh --noscripts netgw-<版本>-linux-amd64.rpm
+> sudo systemctl daemon-reload && sudo systemctl enable --now netgw
+> ```
+>
+> 1.1.1 及之后的版本已修复，后续升级不需要 `--noscripts`。
+
 ## 配置
 
 `config.yaml`（所有字段均有默认值）：
