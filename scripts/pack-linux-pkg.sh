@@ -56,11 +56,11 @@ if [ "$kind" = "deb" ]; then
 Package: tcpgw
 Version: $pkg_version
 Architecture: $deb_arch
-Maintainer: tcp-protocol-gateway maintainers <noreply@github.com>
+Maintainer: tcpgw maintainers <noreply@github.com>
 Depends: libc6 | libc6-udeb
 Section: net
 Priority: optional
-Homepage: https://github.com/zhuyuqin/tcp-protocol-gateway
+Homepage: https://github.com/zhuyuqinlan/tcpgw
 Description: Lightweight HTTP(S) reverse proxy gateway
  TCP/HTTP(S) reverse proxy gateway with path-prefix routing,
  TLS termination and raw TCP passthrough on the same port.
@@ -125,7 +125,7 @@ Version:        $pkg_version
 Release:        1%{?dist}
 Summary:        Lightweight HTTP(S) reverse proxy gateway
 License:        MIT
-URL:            https://github.com/zhuyuqin/tcp-protocol-gateway
+URL:            https://github.com/zhuyuqinlan/tcpgw
 BuildArch:      $rpm_arch
 Requires:       systemd
 

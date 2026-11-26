@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"tcp-protocol-gateway/internal/config"
+	"tcpgw/internal/config"
 )
 
 // startEchoBackend 启动一个原始 TCP 回显后端（收到什么回什么）。

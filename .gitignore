@@ -1,6 +1,6 @@
 # --- 编译产物 ---
-/tcp-protocol-gateway
-/tcp-protocol-gateway.exe
+/tcpgw
+/tcpgw.exe
 *.exe
 *.test
 *.out

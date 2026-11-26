@@ -1,3 +1,3 @@
-module tcp-protocol-gateway
+module tcpgw
 
 go 1.23

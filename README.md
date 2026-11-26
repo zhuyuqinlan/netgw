@@ -1,4 +1,4 @@
-# tcp-protocol-gateway
+# tcpgw
 
 轻量级、高性能、可独立部署的 **Go HTTP(S) 反向代理网关**。
 
@@ -262,13 +262,13 @@ go run crypto/tls/generate_cert.go --host 127.0.0.1
 
 ```bash
 # 当前平台
-go build -o tcp-protocol-gateway ./cmd/gateway
+go build -o tcpgw ./cmd/gateway
 
 # Linux amd64 / arm64（静态编译，可直接部署到无 Go 环境的服务器）
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" \
-    -o tcp-protocol-gateway-linux-amd64 ./cmd/gateway
+    -o tcpgw-linux-amd64 ./cmd/gateway
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" \
-    -o tcp-protocol-gateway-linux-arm64 ./cmd/gateway
+    -o tcpgw-linux-arm64 ./cmd/gateway
 
 # 或使用 Makefile
 make build linux-amd64 linux-arm64
@@ -276,17 +276,17 @@ make build linux-amd64 linux-arm64
 
 ## systemd 部署
 
-`deploy/tcp-protocol-gateway.service`。安装步骤：
+`deploy/tcpgw.service`。安装步骤：
 
 ```bash
-sudo cp tcp-protocol-gateway-linux-amd64 /usr/local/bin/tcp-protocol-gateway
-sudo mkdir -p /etc/tcp-protocol-gateway
-sudo cp config.yaml /etc/tcp-protocol-gateway/
+sudo cp tcpgw-linux-amd64 /usr/local/bin/tcpgw
+sudo mkdir -p /etc/tcpgw
+sudo cp config.yaml /etc/tcpgw/
 # 启用 HTTPS 时，把证书放到服务账号可读的路径并更新配置
-sudo cp deploy/tcp-protocol-gateway.service /etc/systemd/system/
+sudo cp deploy/tcpgw.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now tcp-protocol-gateway
-journalctl -u tcp-protocol-gateway -f   # 查看日志
+sudo systemctl enable --now tcpgw
+journalctl -u tcpgw -f   # 查看日志
 ```
 
 ## 测试
@@ -321,7 +321,7 @@ go vet ./...
 ## 项目结构
 
 ```text
-tcp-protocol-gateway/
+tcpgw/
 ├── cmd/gateway/main.go          # 入口：配置加载、日志、信号处理
 ├── internal/
 │   ├── config/                  # 配置结构与内置 YAML 子集解析器

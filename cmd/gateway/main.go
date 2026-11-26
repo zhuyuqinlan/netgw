@@ -2,7 +2,7 @@
 //
 // 用法:
 //
-//	tcp-protocol-gateway -config config.yaml
+//	tcpgw -config config.yaml
 //
 // 处理 SIGINT/SIGTERM 触发优雅退出：停止接收新连接、
 // 等待活跃连接结束（最长 10 秒），随后强制清理并退出。
@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"tcp-protocol-gateway/internal/config"
-	"tcp-protocol-gateway/internal/gateway"
+	"tcpgw/internal/config"
+	"tcpgw/internal/gateway"
 )
 
 // version 由 CI 通过 -ldflags "-X main.version=..." 注入，默认开发版本。
@@ -120,7 +120,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("tcp-protocol-gateway starting",
+	logger.Info("tcpgw starting",
 		"config", *configPath,
 		"listen", cfg.Server.Listen,
 		"tls", cfg.Server.TLSEnabled(),
