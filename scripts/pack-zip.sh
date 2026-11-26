@@ -5,7 +5,7 @@
 #   os:      windows | linux | darwin
 #   arch:    amd64 | arm64
 #   binfile: 已构建的可执行文件路径
-#   outfile: 输出 zip 路径，如 dist/netgw-linux-amd64.zip
+#   outfile: 输出 zip 路径，如 dist/netgw-1.2.0-linux-amd64.zip
 #
 # ZIP 结构（顶层目录统一为 netgw/）:
 #   netgw/

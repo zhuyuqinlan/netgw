@@ -92,7 +92,7 @@ jobs:
           ./scripts/pack-zip.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
             "dist/bin/netgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" \
-            "dist/netgw-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
+            "dist/netgw-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
 
       - name: Pack DEB
         if: contains(matrix.format, 'deb')
@@ -100,7 +100,7 @@ jobs:
           ./scripts/pack-linux-pkg.sh deb "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
             "dist/bin/netgw-linux-${{ matrix.goarch }}" \
-            "dist/netgw-linux-${{ matrix.goarch }}.deb"
+            "dist/netgw-${{ steps.version.outputs.version }}-linux-${{ matrix.goarch }}.deb"
 
       - name: Pack RPM
         if: contains(matrix.format, 'rpm')
@@ -109,7 +109,7 @@ jobs:
           ./scripts/pack-linux-pkg.sh rpm "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
             "dist/bin/netgw-linux-${{ matrix.goarch }}" \
-            "dist/netgw-linux-${{ matrix.goarch }}.rpm"
+            "dist/netgw-${{ steps.version.outputs.version }}-linux-${{ matrix.goarch }}.rpm"
 
       - name: List artifacts
         run: ls -la dist/
@@ -131,6 +131,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -144,7 +148,7 @@ jobs:
         run: |
           mkdir -p dist
           mv artifacts/netgw-* dist/
-          ./scripts/verify-artifacts.sh dist
+          ./scripts/verify-artifacts.sh dist "${{ steps.version.outputs.version }}"
 
       - name: Upload combined artifacts
         uses: actions/upload-artifact@v4
@@ -161,11 +165,54 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 需要完整历史和 Tag 才能生成“自上个版本以来”的更新内容。
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Derive version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Download release bundle
         uses: actions/download-artifact@v4
         with:
           name: release-bundle
           path: dist
+
+      - name: Generate release notes
+        run: |
+          tag="$GITHUB_REF_NAME"
+          prev="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          {
+            echo "## netgw $tag"
+            echo
+            echo "### 本次更新"
+            echo
+            if [ -n "$prev" ]; then
+              git log --no-merges --pretty=format:'- %s (%h)' "${prev}..${tag}"
+            else
+              git log --no-merges --pretty=format:'- %s (%h)' "$tag"
+            fi
+            echo
+            echo
+            echo "### 发行包"
+            echo
+            echo "| 文件 | 平台 |"
+            echo "|---|---|"
+            echo "| \`netgw-${{ steps.version.outputs.version }}-windows-{amd64,arm64}.zip\` | Windows |"
+            echo "| \`netgw-${{ steps.version.outputs.version }}-linux-{amd64,arm64}.zip\` | Linux 便携包 |"
+            echo "| \`netgw-${{ steps.version.outputs.version }}-linux-{amd64,arm64}.deb\` | Debian/Ubuntu |"
+            echo "| \`netgw-${{ steps.version.outputs.version }}-linux-{amd64,arm64}.rpm\` | RHEL/Fedora/SUSE |"
+            echo "| \`netgw-${{ steps.version.outputs.version }}-darwin-{amd64,arm64}.zip\` | macOS |"
+            echo
+            if [ -n "$prev" ]; then
+              echo "**完整变更**：https://github.com/${GITHUB_REPOSITORY}/compare/${prev}...${tag}"
+            fi
+          } > release-notes.md
+          cat release-notes.md
 
       - name: Check existing release
         id: existing
@@ -184,7 +231,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: netgw ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: release-notes.md
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }} # v1.0.0-rc1 → prerelease
           files: dist/netgw-*
@@ -194,5 +241,6 @@ jobs:
         if: steps.existing.outputs.exists == 'true'
         run: |
           gh release upload "${{ github.ref_name }}" dist/netgw-* --repo "${{ github.repository }}" --clobber
+          gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

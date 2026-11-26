@@ -28,18 +28,20 @@ go build -o netgw ./cmd/gateway
 
 | 文件 | 平台 |
 |---|---|
-| `netgw-windows-{amd64,arm64}.zip` | Windows |
-| `netgw-linux-{amd64,arm64}.zip` | Linux 便携包 |
-| `netgw-linux-{amd64,arm64}.deb` | Debian/Ubuntu |
-| `netgw-linux-{amd64,arm64}.rpm` | RHEL/Fedora/SUSE |
-| `netgw-darwin-{amd64,arm64}.zip` | macOS |
+| `netgw-<版本>-windows-{amd64,arm64}.zip` | Windows |
+| `netgw-<版本>-linux-{amd64,arm64}.zip` | Linux 便携包 |
+| `netgw-<版本>-linux-{amd64,arm64}.deb` | Debian/Ubuntu |
+| `netgw-<版本>-linux-{amd64,arm64}.rpm` | RHEL/Fedora/SUSE |
+| `netgw-<版本>-darwin-{amd64,arm64}.zip` | macOS |
+
+产物文件名、包元数据与 `netgw -version` 输出中的版本号一致。
 
 ### ZIP 便携式运行
 
 解压即用，不注册服务、不写入系统目录：
 
 ```bash
-unzip netgw-linux-amd64.zip
+unzip netgw-<版本>-linux-amd64.zip
 cd netgw
 ./netgw                        # 使用同目录 config.yaml
 ./netgw -config /path/to.yaml  # 或显式指定
@@ -50,8 +52,8 @@ macOS 首次运行若被 Gatekeeper 拦截，可执行 `xattr -d com.apple.quara
 ### DEB / RPM 安装
 
 ```bash
-sudo dpkg -i netgw-linux-amd64.deb     # Debian / Ubuntu
-sudo rpm -i netgw-linux-amd64.rpm      # RHEL / Fedora / SUSE
+sudo dpkg -i netgw-<版本>-linux-amd64.deb   # Debian / Ubuntu
+sudo rpm -i netgw-<版本>-linux-amd64.rpm    # RHEL / Fedora / SUSE
 ```
 
 安装布局：
@@ -81,9 +83,9 @@ journalctl -u netgw -f
 
 ```bash
 # ZIP：直接替换可执行文件，配置不受影响
-sudo dpkg -i netgw-linux-amd64.deb   # DEB 升级
-sudo apt purge netgw                 # DEB 彻底清除（含配置）
-sudo rpm -U netgw-linux-amd64.rpm    # RPM 升级
+sudo dpkg -i netgw-<版本>-linux-amd64.deb   # DEB 升级
+sudo apt purge netgw                       # DEB 彻底清除（含配置）
+sudo rpm -U netgw-<版本>-linux-amd64.rpm    # RPM 升级
 sudo rpm -e netgw                    # RPM 卸载（保留配置）
 ```
 
@@ -161,11 +163,12 @@ git push origin v1.1.0
 ```
 
 GitHub Actions 依次执行测试 → 6 平台构建 → 打包 ZIP/DEB/RPM → 产物校验 → 创建 Release。
+Release 说明自动汇总上个 Tag 以来的提交；发行包统一命名为 `netgw-<版本>-<平台>-<架构>.<扩展名>`。
 
 ## systemd 手动部署
 
 ```bash
-sudo cp netgw-linux-amd64 /usr/local/bin/netgw
+sudo cp netgw-<版本>-linux-amd64 /usr/local/bin/netgw
 sudo mkdir -p /etc/netgw && sudo cp config.yaml /etc/netgw/
 sudo cp deploy/netgw.service /etc/systemd/system/
 sudo systemctl daemon-reload

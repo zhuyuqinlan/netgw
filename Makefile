@@ -32,4 +32,4 @@ linux-arm64:
 # 本机便携包（示例：linux amd64）
 release-zip:
 	./scripts/build.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/netgw
-	./scripts/pack-zip.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/netgw "dist/netgw-$$(go env GOOS)-$$(go env GOARCH).zip"
+	./scripts/pack-zip.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/netgw "dist/netgw-$(VERSION)-$$(go env GOOS)-$$(go env GOARCH).zip"
