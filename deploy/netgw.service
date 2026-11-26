@@ -1,16 +1,16 @@
 [Unit]
-Description=tcpgw HTTP(S) Reverse Proxy Gateway
-Documentation=file:/usr/share/doc/tcpgw/README.md
+Description=netgw HTTP(S) Reverse Proxy Gateway
+Documentation=file:/usr/share/doc/netgw/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=tcpgw
-Group=tcpgw
-# 通过绝对路径启动；配置使用系统级 /etc/tcpgw/config.yaml。
-ExecStart=/usr/lib/tcpgw/tcpgw -config /etc/tcpgw/config.yaml
-WorkingDirectory=/usr/lib/tcpgw
+User=netgw
+Group=netgw
+# 通过绝对路径启动；配置使用系统级 /etc/netgw/config.yaml。
+ExecStart=/usr/lib/netgw/netgw -config /etc/netgw/config.yaml
+WorkingDirectory=/usr/lib/netgw
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=65536
@@ -28,10 +28,10 @@ RestrictNamespaces=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 
-# 日志输出到 journald：journalctl -u tcpgw -f
+# 日志输出到 journald：journalctl -u netgw -f
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=tcpgw
+SyslogIdentifier=netgw
 
 [Install]
 WantedBy=multi-user.target

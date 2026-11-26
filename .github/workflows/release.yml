@@ -75,11 +75,11 @@ jobs:
           mkdir -p dist/bin
           ./scripts/build.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
-            "dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
+            "dist/bin/netgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
 
       - name: Verify binary architecture
         run: |
-          bin="dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          bin="dist/bin/netgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}"
           file "$bin"
           case "${{ matrix.goarch }}" in
             amd64) file "$bin" | grep -qiE "x86-64|x86_64" || { echo "::error::arch mismatch"; exit 1; } ;;
@@ -91,16 +91,16 @@ jobs:
         run: |
           ./scripts/pack-zip.sh "${{ matrix.goos }}" "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
-            "dist/bin/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" \
-            "dist/tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
+            "dist/bin/netgw-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goos == 'windows' && '.exe' || '' }}" \
+            "dist/netgw-${{ matrix.goos }}-${{ matrix.goarch }}.zip"
 
       - name: Pack DEB
         if: contains(matrix.format, 'deb')
         run: |
           ./scripts/pack-linux-pkg.sh deb "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
-            "dist/bin/tcpgw-linux-${{ matrix.goarch }}" \
-            "dist/tcpgw-linux-${{ matrix.goarch }}.deb"
+            "dist/bin/netgw-linux-${{ matrix.goarch }}" \
+            "dist/netgw-linux-${{ matrix.goarch }}.deb"
 
       - name: Pack RPM
         if: contains(matrix.format, 'rpm')
@@ -108,8 +108,8 @@ jobs:
           sudo apt-get update && sudo apt-get install -y rpm
           ./scripts/pack-linux-pkg.sh rpm "${{ matrix.goarch }}" \
             "${{ steps.version.outputs.version }}" \
-            "dist/bin/tcpgw-linux-${{ matrix.goarch }}" \
-            "dist/tcpgw-linux-${{ matrix.goarch }}.rpm"
+            "dist/bin/netgw-linux-${{ matrix.goarch }}" \
+            "dist/netgw-linux-${{ matrix.goarch }}.rpm"
 
       - name: List artifacts
         run: ls -la dist/
@@ -117,9 +117,9 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tcpgw-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: netgw-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            dist/tcpgw-*
+            dist/netgw-*
           if-no-files-found: error
           retention-days: 3
 
@@ -143,14 +143,14 @@ jobs:
       - name: Verify artifacts
         run: |
           mkdir -p dist
-          mv artifacts/tcpgw-* dist/
+          mv artifacts/netgw-* dist/
           ./scripts/verify-artifacts.sh dist
 
       - name: Upload combined artifacts
         uses: actions/upload-artifact@v4
         with:
           name: release-bundle
-          path: dist/tcpgw-*
+          path: dist/netgw-*
           if-no-files-found: error
           retention-days: 3
 
@@ -183,16 +183,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: tcpgw ${{ github.ref_name }}
+          name: netgw ${{ github.ref_name }}
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }} # v1.0.0-rc1 → prerelease
-          files: dist/tcpgw-*
+          files: dist/netgw-*
           fail_on_unmatched_files: true
 
       - name: Upload to existing release
         if: steps.existing.outputs.exists == 'true'
         run: |
-          gh release upload "${{ github.ref_name }}" dist/tcpgw-* --repo "${{ github.repository }}" --clobber
+          gh release upload "${{ github.ref_name }}" dist/netgw-* --repo "${{ github.repository }}" --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

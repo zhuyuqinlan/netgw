@@ -1,3 +1,3 @@
-module tcpgw
+module netgw
 
 go 1.23

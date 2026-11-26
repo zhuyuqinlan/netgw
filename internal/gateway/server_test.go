@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	"tcpgw/internal/config"
+	"netgw/internal/config"
 )
 
 func newTestConfig(t *testing.T, listen string) *config.Config {

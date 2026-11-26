@@ -1,12 +1,12 @@
 // paths.go 集中管理跨平台配置文件路径。
 //
-// 统一约定：配置目录名称为 `tcpgw`。
+// 统一约定：配置目录名称为 `netgw`。
 //
-//	Windows: %APPDATA%/tcpgw/config.yaml        （用户级；无系统级）
-//	Linux:   ~/.config/tcpgw/config.yaml        （用户级，遵循 XDG）
-//	Linux:   /etc/tcpgw/config.yaml             （系统级）
-//	macOS:   ~/.config/tcpgw/config.yaml        （用户级）
-//	macOS:   /etc/tcpgw/config.yaml             （系统级）
+//	Windows: %APPDATA%/netgw/config.yaml        （用户级；无系统级）
+//	Linux:   ~/.config/netgw/config.yaml        （用户级，遵循 XDG）
+//	Linux:   /etc/netgw/config.yaml             （系统级）
+//	macOS:   ~/.config/netgw/config.yaml        （用户级）
+//	macOS:   /etc/netgw/config.yaml             （系统级）
 package config
 
 import (
@@ -17,7 +17,7 @@ import (
 )
 
 // 配置目录名称（所有平台统一）。
-const ConfigDirName = "tcpgw"
+const ConfigDirName = "netgw"
 
 // ConfigFileName 配置文件名。
 const ConfigFileName = "config.yaml"

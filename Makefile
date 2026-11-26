@@ -1,4 +1,4 @@
-BINARY := tcpgw
+BINARY := netgw
 CMD    := ./cmd/gateway
 VERSION ?= dev
 
@@ -20,7 +20,7 @@ fmt:
 	go fmt ./...
 
 clean:
-	rm -f $(BINARY) tcpgw-*
+	rm -f $(BINARY) netgw-*
 
 # 交叉编译 Linux 二进制（静态编译，可直接部署到无 Go 环境的服务器）
 linux-amd64:
@@ -31,5 +31,5 @@ linux-arm64:
 
 # 本机便携包（示例：linux amd64）
 release-zip:
-	./scripts/build.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/tcpgw
-	./scripts/pack-zip.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/tcpgw "dist/tcpgw-$$(go env GOOS)-$$(go env GOARCH).zip"
+	./scripts/build.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/netgw
+	./scripts/pack-zip.sh "$$(go env GOOS)" "$$(go env GOARCH)" "$(VERSION)" dist/bin/netgw "dist/netgw-$$(go env GOOS)-$$(go env GOARCH).zip"

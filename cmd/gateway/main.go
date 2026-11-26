@@ -2,7 +2,7 @@
 //
 // 用法:
 //
-//	tcpgw -config config.yaml
+//	netgw -config config.yaml
 //
 // 处理 SIGINT/SIGTERM 触发优雅退出：停止接收新连接、
 // 等待活跃连接结束（最长 10 秒），随后强制清理并退出。
@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"tcpgw/internal/config"
-	"tcpgw/internal/gateway"
+	"netgw/internal/config"
+	"netgw/internal/gateway"
 )
 
 // version 由 CI 通过 -ldflags "-X main.version=..." 注入，默认开发版本。
@@ -27,7 +27,7 @@ var version = "dev"
 
 // defaultConfigYAML 首次安装时写入用户配置目录的默认模板。
 // 与仓库根目录 config.yaml 保持同步（打包脚本会校验）。
-var defaultConfigYAML = []byte(`# tcpgw 默认配置模板（首次安装生成，升级不会覆盖已有配置）。
+var defaultConfigYAML = []byte(`# netgw 默认配置模板（首次安装生成，升级不会覆盖已有配置）。
 
 server:
   listen: "0.0.0.0:8000"       # 直接监听地址
@@ -61,7 +61,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("tcpgw " + version)
+		fmt.Println("netgw " + version)
 		return
 	}
 
@@ -120,7 +120,7 @@ func main() {
 		}
 	}()
 
-	logger.Info("tcpgw starting",
+	logger.Info("netgw starting",
 		"config", *configPath,
 		"listen", cfg.Server.Listen,
 		"tls", cfg.Server.TLSEnabled(),

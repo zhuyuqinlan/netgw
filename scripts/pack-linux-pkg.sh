@@ -5,11 +5,11 @@
 #   arch: amd64 | arm64
 #
 # 安装布局:
-#   /usr/lib/tcpgw/tcpgw
-#   /etc/tcpgw/config.yaml          <- conffile/noreplace，升级不覆盖
-#   /usr/share/doc/tcpgw/README.md
-#   /usr/share/doc/tcpgw/copyright  (MIT)
-#   /usr/lib/systemd/system/tcpgw.service
+#   /usr/lib/netgw/netgw
+#   /etc/netgw/config.yaml          <- conffile/noreplace，升级不覆盖
+#   /usr/share/doc/netgw/README.md
+#   /usr/share/doc/netgw/copyright  (MIT)
+#   /usr/lib/systemd/system/netgw.service
 #
 # 仅 DEB/RPM 安装注册 systemd 服务；不创建 /usr/bin 软链接、不注册 shell 命令。
 set -euo pipefail
@@ -20,7 +20,7 @@ die() { echo "pack-linux-pkg: ERROR: $*" >&2; exit 1; }
 
 [ -f "$binfile" ] || die "binary not found: $binfile"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVICE="$REPO_ROOT/deploy/tcpgw.service"
+SERVICE="$REPO_ROOT/deploy/netgw.service"
 [ -f "$SERVICE" ] || die "service file missing: $SERVICE"
 
 case "$arch" in
@@ -36,11 +36,11 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 pkgroot="$work/pkg"
-install -Dm755 "$binfile"          "$pkgroot/usr/lib/tcpgw/tcpgw"
-install -Dm644 "$REPO_ROOT/config.yaml" "$pkgroot/etc/tcpgw/config.yaml"
-install -Dm644 "$REPO_ROOT/README.md"   "$pkgroot/usr/share/doc/tcpgw/README.md"
-install -Dm644 "$REPO_ROOT/LICENSE"     "$pkgroot/usr/share/doc/tcpgw/copyright"
-install -Dm644 "$SERVICE"               "$pkgroot/usr/lib/systemd/system/tcpgw.service"
+install -Dm755 "$binfile"          "$pkgroot/usr/lib/netgw/netgw"
+install -Dm644 "$REPO_ROOT/config.yaml" "$pkgroot/etc/netgw/config.yaml"
+install -Dm644 "$REPO_ROOT/README.md"   "$pkgroot/usr/share/doc/netgw/README.md"
+install -Dm644 "$REPO_ROOT/LICENSE"     "$pkgroot/usr/share/doc/netgw/copyright"
+install -Dm644 "$SERVICE"               "$pkgroot/usr/lib/systemd/system/netgw.service"
 
 mkdir -p "$(dirname "$outfile")"
 
@@ -50,17 +50,17 @@ if [ "$kind" = "deb" ]; then
   mkdir -p "$ctrl"
 
   # conffiles：升级时 dpkg 保留用户修改（询问或保留），不覆盖配置。
-  echo "/etc/tcpgw/config.yaml" > "$ctrl/conffiles"
+  echo "/etc/netgw/config.yaml" > "$ctrl/conffiles"
 
   cat > "$ctrl/control" <<EOF
-Package: tcpgw
+Package: netgw
 Version: $pkg_version
 Architecture: $deb_arch
-Maintainer: tcpgw maintainers <noreply@github.com>
+Maintainer: netgw maintainers <noreply@github.com>
 Depends: libc6 | libc6-udeb
 Section: net
 Priority: optional
-Homepage: https://github.com/zhuyuqinlan/tcpgw
+Homepage: https://github.com/zhuyuqinlan/netgw
 Description: Lightweight HTTP(S) reverse proxy gateway
  TCP/HTTP(S) reverse proxy gateway with path-prefix routing,
  TLS termination and raw TCP passthrough on the same port.
@@ -71,13 +71,13 @@ EOF
 #!/bin/sh
 set -e
 # 专用非 root 系统用户（首次安装创建，已存在则跳过）。
-if ! getent passwd tcpgw >/dev/null 2>&1; then
-  adduser --system --group --no-create-home --home /nonexistent tcpgw 2>/dev/null \
-    || useradd --system --no-create-home --home /nonexistent --shell /usr/sbin/nologin tcpgw 2>/dev/null || true
+if ! getent passwd netgw >/dev/null 2>&1; then
+  adduser --system --group --no-create-home --home /nonexistent netgw 2>/dev/null \
+    || useradd --system --no-create-home --home /nonexistent --shell /usr/sbin/nologin netgw 2>/dev/null || true
 fi
 if command -v systemctl >/dev/null 2>&1; then
   systemctl daemon-reload || true
-  systemctl enable tcpgw.service || true
+  systemctl enable netgw.service || true
 fi
 exit 0
 EOF
@@ -88,8 +88,8 @@ EOF
 set -e
 if [ "$1" = "remove" ] || [ "$1" = "upgrade" ]; then
   if command -v systemctl >/dev/null 2>&1; then
-    systemctl stop tcpgw.service || true
-    systemctl disable tcpgw.service || true
+    systemctl stop netgw.service || true
+    systemctl disable netgw.service || true
   fi
 fi
 exit 0
@@ -100,10 +100,10 @@ EOF
 #!/bin/sh
 set -e
 if [ "$1" = "purge" ]; then
-  rm -f /etc/tcpgw/config.yaml
-  rmdir /etc/tcpgw 2>/dev/null || true
-  if getent passwd tcpgw >/dev/null 2>&1; then
-    userdel tcpgw 2>/dev/null || true
+  rm -f /etc/netgw/config.yaml
+  rmdir /etc/netgw 2>/dev/null || true
+  if getent passwd netgw >/dev/null 2>&1; then
+    userdel netgw 2>/dev/null || true
   fi
 fi
 exit 0
@@ -119,13 +119,13 @@ elif [ "$kind" = "rpm" ]; then
   rpmroot="$work/rpmbuild"
   mkdir -p "$rpmroot/BUILD" "$rpmroot/RPMS" "$rpmroot/SPECS"
 
-  cat > "$rpmroot/SPECS/tcpgw.spec" <<EOF
-Name:           tcpgw
+  cat > "$rpmroot/SPECS/netgw.spec" <<EOF
+Name:           netgw
 Version:        $pkg_version
 Release:        1%{?dist}
 Summary:        Lightweight HTTP(S) reverse proxy gateway
 License:        MIT
-URL:            https://github.com/zhuyuqinlan/tcpgw
+URL:            https://github.com/zhuyuqinlan/netgw
 # 注意：spec 里不写 BuildArch，由 rpmbuild --target 决定架构，
 # 否则在异构宿主上交叉构建会报 No compatible architectures found for build。
 Requires:       systemd
@@ -137,40 +137,40 @@ TLS termination and raw TCP passthrough on the same port.
 %prep
 %build
 %install
-mkdir -p %{buildroot}/usr/lib/tcpgw %{buildroot}/etc/tcpgw \
-         %{buildroot}/usr/share/doc/tcpgw %{buildroot}/usr/lib/systemd/system
-install -m755 "$pkgroot/usr/lib/tcpgw/tcpgw"              %{buildroot}/usr/lib/tcpgw/tcpgw
-install -m644 "$pkgroot/etc/tcpgw/config.yaml"            %{buildroot}/etc/tcpgw/config.yaml
-install -m644 "$pkgroot/usr/share/doc/tcpgw/README.md"    %{buildroot}/usr/share/doc/tcpgw/README.md
-install -m644 "$pkgroot/usr/share/doc/tcpgw/copyright"    %{buildroot}/usr/share/doc/tcpgw/copyright
-install -m644 "$pkgroot/usr/lib/systemd/system/tcpgw.service" %{buildroot}/usr/lib/systemd/system/tcpgw.service
+mkdir -p %{buildroot}/usr/lib/netgw %{buildroot}/etc/netgw \
+         %{buildroot}/usr/share/doc/netgw %{buildroot}/usr/lib/systemd/system
+install -m755 "$pkgroot/usr/lib/netgw/netgw"              %{buildroot}/usr/lib/netgw/netgw
+install -m644 "$pkgroot/etc/netgw/config.yaml"            %{buildroot}/etc/netgw/config.yaml
+install -m644 "$pkgroot/usr/share/doc/netgw/README.md"    %{buildroot}/usr/share/doc/netgw/README.md
+install -m644 "$pkgroot/usr/share/doc/netgw/copyright"    %{buildroot}/usr/share/doc/netgw/copyright
+install -m644 "$pkgroot/usr/lib/systemd/system/netgw.service" %{buildroot}/usr/lib/systemd/system/netgw.service
 
 %files
-/usr/lib/tcpgw/tcpgw
-%config(noreplace) /etc/tcpgw/config.yaml
-/usr/share/doc/tcpgw/README.md
-/usr/share/doc/tcpgw/copyright
-/usr/lib/systemd/system/tcpgw.service
+/usr/lib/netgw/netgw
+%config(noreplace) /etc/netgw/config.yaml
+/usr/share/doc/netgw/README.md
+/usr/share/doc/netgw/copyright
+/usr/lib/systemd/system/netgw.service
 
 %post
-getent passwd tcpgw >/dev/null 2>&1 || \\
-  useradd --system --no-create-home --home /nonexistent --shell /sbin/nologin tcpgw 2>/dev/null || true
-%systemd_post tcpgw.service
+getent passwd netgw >/dev/null 2>&1 || \\
+  useradd --system --no-create-home --home /nonexistent --shell /sbin/nologin netgw 2>/dev/null || true
+%systemd_post netgw.service
 
 %preun
-%systemd_preun tcpgw.service
+%systemd_preun netgw.service
 
 %postun
-%systemd_postun_with_restart tcpgw.service
+%systemd_postun_with_restart netgw.service
 # 配置文件默认保留，仅在 rpm -e --nodeps 之外的显式卸载场景由用户决定。
 EOF
 
   # --target：允许在任意宿主架构上交叉构建（如 x86_64 宿主打 aarch64 包）。
   rpmbuild --define "_topdir $rpmroot" --define "_rpmdir $(dirname "$outfile")" \
-    --target "$rpm_arch" -bb "$rpmroot/SPECS/tcpgw.spec"
-  # rpmbuild 输出到 <outdir>/<arch>/tcpgw-<ver>.<arch>.rpm，移动到目标名。
-  built="$(find "$(dirname "$outfile")" -name "tcpgw-$pkg_version-1*.rpm" -newer "$binfile" ! -path "*/tcpgw.spec*" | head -1)"
-  [ -n "$built" ] || built="$(find "$(dirname "$outfile")" -name "tcpgw-*.rpm" | head -1)"
+    --target "$rpm_arch" -bb "$rpmroot/SPECS/netgw.spec"
+  # rpmbuild 输出到 <outdir>/<arch>/netgw-<ver>.<arch>.rpm，移动到目标名。
+  built="$(find "$(dirname "$outfile")" -name "netgw-$pkg_version-1*.rpm" -newer "$binfile" ! -path "*/netgw.spec*" | head -1)"
+  [ -n "$built" ] || built="$(find "$(dirname "$outfile")" -name "netgw-*.rpm" | head -1)"
   [ -n "$built" ] || die "rpmbuild produced no rpm"
   if [ "$built" != "$outfile" ]; then
     mv "$built" "$outfile"

@@ -21,9 +21,9 @@ func fakeUserConfigEnv(t *testing.T) string {
 
 func userConfigFilePath(dir string) string {
 	if runtime.GOOS == "windows" {
-		return filepath.Join(dir, "tcpgw", "config.yaml")
+		return filepath.Join(dir, "netgw", "config.yaml")
 	}
-	return filepath.Join(dir, "tcpgw", "config.yaml")
+	return filepath.Join(dir, "netgw", "config.yaml")
 }
 
 func TestResolvePriority(t *testing.T) {

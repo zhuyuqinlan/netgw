@@ -1,6 +1,6 @@
 # --- 编译产物 ---
-/tcpgw
-/tcpgw.exe
+/netgw
+/netgw.exe
 *.exe
 *.test
 *.out

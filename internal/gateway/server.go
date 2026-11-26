@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"sync"
 
-	"tcpgw/internal/config"
-	"tcpgw/internal/proxy"
+	"netgw/internal/config"
+	"netgw/internal/proxy"
 )
 
 // ErrServerClosed 在服务已关闭后返回。
