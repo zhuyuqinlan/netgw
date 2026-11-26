@@ -46,7 +46,7 @@ mkdir -p "$(dirname "$outfile")"
 
 if [ "$kind" = "deb" ]; then
   # ---- DEB (dpkg-deb) ----
-  ctrl="$work/DEBIAN"
+  ctrl="$pkgroot/DEBIAN"
   mkdir -p "$ctrl"
 
   # conffiles：升级时 dpkg 保留用户修改（询问或保留），不覆盖配置。
@@ -138,11 +138,11 @@ TLS termination and raw TCP passthrough on the same port.
 %install
 mkdir -p %{buildroot}/usr/lib/tcpgw %{buildroot}/etc/tcpgw \
          %{buildroot}/usr/share/doc/tcpgw %{buildroot}/usr/lib/systemd/system
-install -m755 $(find "$pkgroot/usr/lib/tcpgw" -name tcpgw) %{buildroot}/usr/lib/tcpgw/tcpgw
-install -m644 $(find "$pkgroot/etc/tcpgw" -name config.yaml) %{buildroot}/etc/tcpgw/config.yaml
-install -m644 $(find "$pkgroot/usr/share/doc/tcpgw" -name README.md) %{buildroot}/usr/share/doc/tcpgw/README.md
-install -m644 $(find "$pkgroot/usr/share/doc/tcpgw" -name copyright) %{buildroot}/usr/share/doc/tcpgw/copyright
-install -m644 $(find "$pkgroot/usr/lib/systemd/system" -name tcpgw.service) %{buildroot}/usr/lib/systemd/system/tcpgw.service
+install -m755 "$pkgroot/usr/lib/tcpgw/tcpgw"              %{buildroot}/usr/lib/tcpgw/tcpgw
+install -m644 "$pkgroot/etc/tcpgw/config.yaml"            %{buildroot}/etc/tcpgw/config.yaml
+install -m644 "$pkgroot/usr/share/doc/tcpgw/README.md"    %{buildroot}/usr/share/doc/tcpgw/README.md
+install -m644 "$pkgroot/usr/share/doc/tcpgw/copyright"    %{buildroot}/usr/share/doc/tcpgw/copyright
+install -m644 "$pkgroot/usr/lib/systemd/system/tcpgw.service" %{buildroot}/usr/lib/systemd/system/tcpgw.service
 
 %files
 /usr/lib/tcpgw/tcpgw

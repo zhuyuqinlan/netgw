@@ -100,8 +100,8 @@ for a in x86_64 aarch64; do
   echo "$listing" | grep -q "/usr/lib/systemd/system/tcpgw.service" || { echo "verify: FAIL: $p missing service" >&2; fail=1; }
   echo "$listing" | grep -qE "/usr/bin|/usr/local" && { echo "verify: FAIL: $p installs to /usr/bin" >&2; fail=1; }
   noreplace="$(rpm -qp --qf '[%{FILENAMES} %{FILEFLAGS}\n]' "$p" 2>/dev/null | grep 'etc/tcpgw/config.yaml' | awk '{print $2}')"
-  # FILEFLAGS 含 2（RPMFILE_NOREPLACE）才算 noreplace 配置。
-  [ $(( noreplace & 2 )) -eq 2 ] 2>/dev/null || { echo "verify: FAIL: $p config not noreplace" >&2; fail=1; }
+  # RPMFILE_CONFIG=1<<0，RPMFILE_NOREPLACE=1<<4；两者都置位才是 noreplace 配置。
+  [ $(( noreplace & 17 )) -eq 17 ] 2>/dev/null || { echo "verify: FAIL: $p config not noreplace" >&2; fail=1; }
   ok "rpm $a checks passed"
 done
 
