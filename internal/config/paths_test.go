@@ -121,7 +121,7 @@ func TestLoadAutoParseError(t *testing.T) {
 	// 配置存在但语法非法必须报错。
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "bad.yaml")
-	if err := os.WriteFile(bad, []byte("server: [1,2,\n"), 0o644); err != nil {
+	if err := os.WriteFile(bad, []byte("listeners: [1,2,\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := LoadAuto(bad); err == nil {

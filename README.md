@@ -1,15 +1,17 @@
 # netgw
 
-轻量级、高性能、可独立部署的 **Go HTTP(S) 反向代理网关**，仅依赖标准库，单二进制即可运行。
+轻量级、高性能、可独立部署的 **Go 多端口 HTTP(S) 反向代理网关**，仅依赖标准库，单二进制即可运行。
 
-网关默认监听 `0.0.0.0:8000`：命中路径前缀的 HTTP 请求走反向代理，其余连接按原始 TCP 透传到默认后端。配置 TLS 证书后同一端口同时服务 HTTPS 与原始 TCP——按连接首字节嗅探，TLS 在网关终止，非 TLS 连接（如 Minecraft）原样透传。
+配置 `listeners` 列表监听任意多个端口，每个端口独立配置 backend、路由、静态站点与 TLS。HTTP 请求按处理链走：`/hello` 欢迎页 → 前缀路由反代 → 静态文件 → backend 兜底；非 HTTP 连接（如 Minecraft）按原始 TCP 透传。配置 TLS 证书后同一端口同时服务 HTTPS 与原始 TCP——按连接首字节嗅探，TLS 在网关终止。
 
 ## 特性
 
-- **前缀路由**：最长前缀优先，可选剥掉前缀。
-- **默认后端**：路由未命中时转发到顶层 `backend`。
+- **多端口**：`listeners` 列表，每端口独立的 backend、路由、静态站点与证书。
+- **前缀路由**：最长前缀优先，可选剥掉前缀，路由级 `web_root` 静态站点。
+- **静态站点**：端口级/路由级 `web_root`（类似 nginx root），index.html 为目录索引，文件不存在回退反代。
+- **内置欢迎页**：任意端口访问 `/hello` 返回状态页（用户 `/hello` 路由可覆盖）。
 - **完整代理语义**：基于 `httputil.ReverseProxy`，支持 Keep-Alive、流式请求/响应、WebSocket、大文件上传，后端不可用返回 502。
-- **HTTPS + TCP 混合端口**：TLS 按连接嗅探，非 TLS 协议零影响。
+- **HTTPS + TCP 混合端口**：TLS 按连接嗅探，非 TLS 协议零影响，各端口独立证书与热重载。
 - **零第三方依赖**：内置 YAML 子集解析器，无 `go.sum`。
 - **优雅退出**：SIGINT/SIGTERM 后停止接收新连接并排空活跃请求。
 
@@ -18,8 +20,8 @@
 环境要求：Go 1.23+。
 
 ```bash
-go build -o netgw ./cmd/gateway
-./netgw -config config.yaml
+make run                        # 自动生成 config.local.yaml 并启动
+./netgw -config config.yaml     # 或显式指定配置
 ```
 
 ## 下载与安装
@@ -71,7 +73,7 @@ sudo rpm -i netgw-<版本>-linux-amd64.rpm    # RHEL / Fedora / SUSE
   `/usr/lib`：该目录是 `lib_t`，systemd 启动后会停留在 `init_t` 域，
   SELinux 会拒绝 `name_connect`/`name_bind`（如连接后端 8080）。
 - 安装后自动 enable（不自动 start），启动前按需修改 `/etc/netgw/config.yaml`。
-- 安装包自带通用模板（监听 `0.0.0.0:8000`、无 TLS）；升级时已有配置不被覆盖。
+- 安装包自带通用模板（监听 `0.0.0.0:7822`、无 TLS）；升级时已有配置不被覆盖。
   TLS 证书请放在服务账号可读的位置（如 `/etc/netgw/`，`chown root:netgw`、`chmod 640`）
   并在配置中使用**绝对路径**：服务以 `netgw` 用户运行且启用 `ProtectHome=true`，
   不要指向 `/root` 或用户家目录。
@@ -108,24 +110,30 @@ sudo rpm -e netgw                    # RPM 卸载（保留配置）
 `config.yaml`（所有字段均有默认值）：
 
 ```yaml
-server:
-  listen: "0.0.0.0:8000"       # 监听地址
-  read_header_timeout: 10s     # 请求头读取期限，防慢连接占用
-  # tls_cert: "cert.pem"       # 同时配置证书与私钥即启用 HTTPS
-  # tls_key: "key.pem"
+# 全局默认请求头读取期限（listener 未单独配置时生效）。
+read_header_timeout: 10s
+# 监听端口列表，每个端口独立配置 backend、路由、静态站点与 TLS。
+# 访问 http://<addr>/hello 返回内置欢迎页（用户 /hello 路由可覆盖）。
+listeners:
+  - addr: "0.0.0.0:7822"     # 监听地址（必填）
+    backend: "127.0.0.1:8080"  # 未命中路由时整条连接透传到这里（必填）
+    routes:                  # 可选：HTTP 路径前缀路由（WebSocket 同样透传）
+      "/api": "127.0.0.1:9091"   # 简写：前缀保留
+      "/files":                  # 完整写法：可剥前缀
+        backend: "127.0.0.1:9092"
+        strip_prefix: true       # /files/x → 后端收到 /x
+        # web_root: "/var/www/files"  # 可选：路由级静态站点——命中该
+        #                             # 前缀且文件存在时伺服静态文件，
+        #                             # 文件不存在时反代到该路由 backend
+    web_root: "/var/www/mysite"  # 可选：端口级静态站点目录（类似 nginx root），
+                                 # 未命中路由的请求伺服静态文件，
+                                 # 文件不存在时反代到 backend
+    # tls_cert: "cert.pem"     # 同时配置证书与私钥即启用 HTTPS
+    # tls_key: "key.pem"       # （各端口可用不同证书）
 
 http:
   connect_timeout: 5s          # 连接后端超时
   tls_skip_verify: false       # HTTPS 后端使用自签证书时设为 true（仅测试）
-
-backend: "127.0.0.1:8080"      # 未命中路由时的默认后端
-
-routes:
-  http:
-    "/api": "127.0.0.1:8080"   # 简写：前缀保留
-    "/files":                  # 完整写法：可剥前缀
-      backend: "127.0.0.1:8081"
-      strip_prefix: true       # /files/x → 后端收到 /x
 
 logging:
   level: "info"                # debug / info / warn / error
@@ -143,14 +151,26 @@ logging:
 
 ### 路由规则
 
+HTTP 请求处理链（最长前缀优先）：
+
+1. `/hello`：内置欢迎页（用户配置 `/hello` 路由则被路由覆盖）。
+2. 命中 `routes` 前缀：该路由 `web_root` 下文件存在 → 伺服静态文件；否则反代到该路由 `backend`。
+3. 未命中路由：端口 `web_root` 下文件存在 → 伺服静态文件。
+4. 以上都不满足：反代到端口 `backend`。
+
+非 HTTP 连接（首字节嗅探非 HTTP 方法）整条原始透传到端口 `backend`。
+
+其他规则：
+
 - **最长前缀优先**：`/api` 与 `/api/v1` 并存时，`/api/v1/x` 命中后者；`/apiweb` 会命中 `/api`（纯字符串前缀）。
-- **strip_prefix**：只重写路径（`/api/users` → `/users`），查询串保留；剥完为空则转发为 `/`。
-- **安全**：转发目标只来自配置文件，客户端无法指定，不存在开放代理风险。
+- **strip_prefix**：只重写路径（`/api/users` → `/users`），查询串保留；剥完为空则转发为 `/`；对静态路径同样生效。
+- **backend 必填**：每个 listener 与每条 route 都必须有 `backend`，它是最后的兜底。
 - **转发头**：自动设置 `X-Forwarded-For` 与 `X-Forwarded-Proto`。
+- **安全**：转发目标只来自配置文件，客户端无法指定，不存在开放代理风险。
 
 ### HTTPS 混合端口
 
-同时配置 `server.tls_cert` 与 `server.tls_key`（PEM）即启用。首字节是 TLS handshake record（`0x16 0x03`）的连接完成 TLS 握手后进入 HTTP 分流，其余连接原样透传。浏览器与 MC 客户端可共用同一端口。
+在 listener 中同时配置 `tls_cert` 与 `tls_key`（PEM）即启用，每个端口可用不同证书。首字节是 TLS handshake record（`0x16 0x03`）的连接完成 TLS 握手后进入 HTTP 分流，其余连接原样透传。浏览器与 MC 客户端可共用同一端口；证书文件变更后新连接自动热重载。
 
 生成自签证书（仅测试）：
 
@@ -158,7 +178,11 @@ logging:
 go run crypto/tls/generate_cert.go --host 127.0.0.1
 ```
 
-> 内置解析器支持嵌套映射、双引号键值、`#` 注释，不支持列表、锚点、多行字符串等完整 YAML 语法。
+> 内置解析器支持嵌套映射、`- ` 列表、双引号键值、`#` 注释，不支持锚点、多行字符串等完整 YAML 语法。
+>
+> **从 1.2.x 升级**：配置格式变更为顶层 `listeners` 列表（旧的
+> `server.listen` / 顶层 `backend` / `routes.http` 不再生效，会被静默
+> 忽略并回退默认配置），需按上方示例迁移。
 
 ## 构建与发布
 
@@ -196,21 +220,22 @@ netgw/
 ├── cmd/gateway/      # 入口：配置加载、日志、信号处理
 ├── internal/
 │   ├── config/       # 配置结构与 YAML 子集解析器
-│   ├── gateway/      # 监听、TLS 嗅探、优雅退出
-│   └── proxy/        # 前缀路由 + ReverseProxy
+│   ├── gateway/      # 监听、TLS 嗅探、端口处理链、优雅退出
+│   └── proxy/        # 前缀路由、路由级静态站点 + ReverseProxy
 ├── deploy/           # systemd 服务文件
-├── scripts/          # 构建、打包、产物校验
-├── config.yaml
-└── Makefile
+├── scripts/          # 构建、打包、产物校验、本地运行
+├── config.yaml       # 全注释通用模板
+└── Makefile          # make run 本地运行
 ```
 
 ## 故障排查
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| `bind: address already in use` | 端口被占用：`ss -ltnp \| grep 8000`，或修改 `server.listen` |
-| 返回 502 | 后端未启动或不可达，检查 `backend` 与 `routes.http` |
+| `bind: address already in use` | 端口被占用：`ss -ltnp \| grep 7822`，或修改对应端口的 `addr` |
+| 返回 502 | 后端未启动或不可达，检查对应 listener/route 的 `backend` |
 | HTTPS 无法访问 | 确认证书/私钥均已配置且服务账号可读、证书未过期 |
+| 静态站点 404 变成反代 | `web_root` 下文件不存在会回退反代到 backend，属预期行为 |
 | `bind: permission denied` | 端口 < 1024 需 `CAP_NET_BIND_SERVICE` 或改用高端口 |
 | SELinux 拒绝 `name_connect` / `name_bind` | 二进制必须位于 `/usr/sbin`（`bin_t`）；确认 `ls -Z /usr/sbin/netgw`，旧版装在 `/usr/lib/netgw` 的请升级到 1.2.1+ |
 

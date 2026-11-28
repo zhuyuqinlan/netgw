@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,27 +29,31 @@ var version = "dev"
 // defaultConfigYAML 首次安装时写入用户配置目录的默认模板。
 // 与仓库根目录 config.yaml 的默认值保持一致。
 var defaultConfigYAML = []byte(`# netgw 默认配置模板（首次安装生成，升级不会覆盖已有配置）。
+# 完整示例（含静态站点、HTTPS、多端口）见发行包 config.yaml。
 
-server:
-  listen: "0.0.0.0:8000"       # 直接监听地址
-  read_header_timeout: 10s     # 读取请求头的期限
-  # 同时配置以下两项即启用 HTTPS（TLS 在网关终止）：
-  # tls_cert: "cert.pem"
-  # tls_key: "key.pem"
+# 全局默认请求头读取期限（listener 未单独配置时生效）。
+read_header_timeout: 10s
+
+# 监听端口列表，每个端口独立配置 backend、路由、静态站点与 TLS。
+# 未配置 routes/web_root 的端口为纯 TCP 透传（零嗅探开销）；
+# 同时配置 tls_cert/tls_key 即启用 HTTPS（按连接嗅探，
+# 同一端口同时服务 HTTPS 与原始 TCP）。
+# 访问 http://<addr>/hello 可查看内置欢迎页。
+listeners:
+  - addr: "0.0.0.0:7822"
+    backend: "127.0.0.1:8080"
+    # routes:
+    #   "/api": "127.0.0.1:9091"       # 简写：前缀保留
+    #   "/web":
+    #     backend: "127.0.0.1:9092"
+    #     strip_prefix: true          # /web/x → 后端收到 /x
+    #     web_root: "/var/www/webadmin"  # 路由级静态站点
+    # web_root: "/var/www/mysite"     # 端口级静态站点目录
+    # tls_cert: "cert.pem"
+    # tls_key: "key.pem"
 
 http:
   connect_timeout: 5s          # 连接后端超时
-
-# 默认后端 TCP 地址：连接未命中任何前缀路由时，整条连接原始透传。
-backend: "127.0.0.1:8080"
-
-# 可选的 HTTP 路径前缀路由（最长前缀优先）。
-routes:
-  http:
-    # "/api": "127.0.0.1:8080"
-    # "/web":
-    #   backend: "127.0.0.1:8081"
-    #   strip_prefix: true
 
 logging:
   level: "info"                # debug / info / warn / error
@@ -120,11 +125,20 @@ func main() {
 		}
 	}()
 
+	// 汇总各端口地址与 TLS 状态用于日志。
+	addrs := make([]string, 0, len(cfg.Server.Listeners))
+	anyTLS := false
+	for _, l := range cfg.Server.Listeners {
+		addrs = append(addrs, l.Addr)
+		if l.TLSEnabled() {
+			anyTLS = true
+		}
+	}
+
 	logger.Info("netgw starting",
 		"config", *configPath,
-		"listen", cfg.Server.Listen,
-		"tls", cfg.Server.TLSEnabled(),
-		"backend", cfg.Backend)
+		"listen", strings.Join(addrs, ", "),
+		"tls", anyTLS)
 
 	err = srv.ListenAndServe()
 	if err == gateway.ErrServerClosed {

@@ -2,7 +2,7 @@ BINARY := netgw
 CMD    := ./cmd/gateway
 VERSION ?= dev
 
-.PHONY: build test race vet fmt clean linux-amd64 linux-arm64 release-zip
+.PHONY: build test race vet fmt clean run config-local linux-amd64 linux-arm64 release-zip
 
 build:
 	go build -trimpath -ldflags "-X main.version=$(VERSION)" -o $(BINARY) $(CMD)
@@ -18,6 +18,14 @@ vet:
 
 fmt:
 	go fmt ./...
+
+# 本地运行：读取当前目录 config.local.yaml，不存在时自动生成模板。
+run:
+	@./scripts/run-local.sh
+
+.PHONY: config-local
+config-local:
+	@./scripts/run-local.sh gen
 
 clean:
 	rm -f $(BINARY) netgw-*

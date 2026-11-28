@@ -73,13 +73,11 @@ func TestGatewayMixedPortTLSAndTCP(t *testing.T) {
 	addr := gwLn.Addr().String()
 	_ = gwLn.Close()
 
-	cfg := newTestConfig(t, addr)
-	cfg.Backend = echoAddr
-	cfg.Server.TLSCertFile = certPath
-	cfg.Server.TLSKeyFile = keyPath
-	cfg.Routes.HTTP["/"] = config.HTTPRoute{
-		Backend: strings.TrimPrefix(httpBackend.URL, "http://"),
-	}
+	cfg := cfg1(t, addr, echoAddr, map[string]config.HTTPRoute{
+		"/": {Backend: strings.TrimPrefix(httpBackend.URL, "http://")},
+	})
+	cfg.Server.Listeners[0].TLSCertFile = certPath
+	cfg.Server.Listeners[0].TLSKeyFile = keyPath
 	startServer(t, cfg)
 
 	// 1) HTTPS：TLS 握手成功，命中 "/" 路由。
@@ -174,11 +172,9 @@ func TestGatewayTLSWithoutRoutes(t *testing.T) {
 	addr := gwLn.Addr().String()
 	_ = gwLn.Close()
 
-	cfg := newTestConfig(t, addr)
-	cfg.Backend = echoAddr
-	cfg.Server.TLSCertFile = certPath
-	cfg.Server.TLSKeyFile = keyPath
-	// 不配置 routes.HTTP。
+	cfg := cfg1(t, addr, echoAddr, nil)
+	cfg.Server.Listeners[0].TLSCertFile = certPath
+	cfg.Server.Listeners[0].TLSKeyFile = keyPath
 	startServer(t, cfg)
 
 	// 1) TLS 客户端：解密后的明文透传。
@@ -242,10 +238,9 @@ func TestGatewayTLSHandshakeFailureNoCrash(t *testing.T) {
 	addr := gwLn.Addr().String()
 	_ = gwLn.Close()
 
-	cfg := newTestConfig(t, addr)
-	cfg.Backend = echoAddr
-	cfg.Server.TLSCertFile = certPath
-	cfg.Server.TLSKeyFile = keyPath
+	cfg := cfg1(t, addr, echoAddr, nil)
+	cfg.Server.Listeners[0].TLSCertFile = certPath
+	cfg.Server.Listeners[0].TLSKeyFile = keyPath
 	startServer(t, cfg)
 
 	// 构造握手必失败的连接：合法 TLS record 头（0x16 0x03 0x03）
@@ -291,18 +286,20 @@ func TestDetectTLSPartialRecord(t *testing.T) {
 	if err := writeSelfSignedCert(certPath, keyPath); err != nil {
 		t.Fatalf("generate cert: %v", err)
 	}
-	cfg := newTestConfig(t, "127.0.0.1:0")
-	cfg.Server.TLSCertFile = certPath
-	cfg.Server.TLSKeyFile = keyPath
-	cfg.Server.ReadHeaderTimeout = time.Second
+	cfg := cfg1(t, "127.0.0.1:0", "127.0.0.1:1", nil)
+	cfg.Server.Listeners[0].TLSCertFile = certPath
+	cfg.Server.Listeners[0].TLSKeyFile = keyPath
+	cfg.Server.Listeners[0].ReadHeaderTimeout = time.Second
 
 	srv, err := New(cfg, testLogger())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// 手动构造 tlsConfig（绕过 ListenAndServe）。
-	srv.tlsConfig = &tls.Config{ //nolint:gosec // 测试
-		MinVersion: tls.VersionTLS12,
+	// 手动构造 tlsCfg（绕过 ListenAndServe）。
+	for _, pc := range srv.ports {
+		pc.tlsCfg = &tls.Config{ //nolint:gosec // 测试
+			MinVersion: tls.VersionTLS12,
+		}
 	}
 
 	c1, c2 := net.Pipe()
@@ -315,7 +312,7 @@ func TestDetectTLSPartialRecord(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		conn, br := srv.detectTLS(c1)
+		conn, br := srv.detectTLS(c1, srv.ports["127.0.0.1:0"])
 		if conn == nil {
 			t.Error("detectTLS returned nil for partial record, want non-TLS conn")
 			return

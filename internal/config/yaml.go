@@ -8,20 +8,49 @@ import (
 // parseYAML 解析本项目配置所需的 YAML 子集：
 //
 //   - 任意层级的嵌套映射（按缩进识别层级，只允许空格缩进，不允许 Tab）；
+//   - 列表："- " 开头的列表项，列表项可以是标量或映射（首键可跟在
+//     "- " 之后，也可换行缩进续写）；
 //   - 标量值：裸标量与双引号字符串；
 //   - "#" 行注释与值后的行内注释（行内注释仅在不处于引号内时生效）；
-//   - 不支持列表、锚点、多行字符串、流式集合等语法。
+//   - 不支持锚点、多行字符串、流式集合等语法。
 //
 // 返回 map[string]any，其中嵌套映射的值类型为 map[string]any，
-// 标量一律以 string 表示（类型转换由上层 decode 函数完成）。
+// 列表的值类型为 []any，标量一律以 string 表示（类型转换由上层
+// decode 函数完成）。
 func parseYAML(data []byte) (map[string]any, error) {
-	root := map[string]any{}
-	// 栈元素：当前层缩进与所在 map。栈底是 root。
-	type frame struct {
+	type node struct {
 		indent int
 		m      map[string]any
+		list   []any
+		// listOwner 为 nil 时列表不来自 "key:" 转换；非 nil 时
+		// append 后需把最新切片写回 listOwner[listOwnerKey]。
+		listOwner    map[string]any
+		listOwnerKey string
 	}
+	setScalar := func(f *node, body string, lineNo int) error {
+		key, rest, err := splitKeyValue(body, lineNo)
+		if err != nil {
+			return err
+		}
+		if f.m == nil {
+			return fmt.Errorf("line %d: unexpected key %q outside a mapping", lineNo, key)
+		}
+		f.m[key] = unquote(strings.TrimSpace(rest))
+		return nil
+	}
+	root := map[string]any{}
+	// 栈元素：当前层缩进与所在节点。栈底是 root；m 与 list 至少
+	// 一个非 nil，标识该层是映射还是列表。
+	type frame = node
 	stack := []frame{{indent: -1, m: root}}
+
+	// lastKey 记录最后一个 "key:" 开启的键及其占位映射：当其下一行
+	// 是列表项时，把占位映射替换为列表。
+	var lastKey struct {
+		parent map[string]any
+		key    string
+		set    bool
+	}
 
 	for lineNo, raw := range strings.Split(string(data), "\n") {
 		line := strings.TrimRight(raw, "\r")
@@ -41,26 +70,86 @@ func parseYAML(data []byte) (map[string]any, error) {
 			continue
 		}
 
+		// 回退栈到缩入不高于当前行的层。
+		for len(stack) > 1 && stack[len(stack)-1].indent >= indent {
+			stack = stack[:len(stack)-1]
+		}
+		top := &stack[len(stack)-1]
+
+		// 列表项："- value"、"- key: value" 或 "-"（映射项换行续写）。
+		// 任何 append 之后都必须回写归属方持有的切片（见 pushList）。
+		if body == "-" || strings.HasPrefix(body, "- ") {
+			// 上一个 "key:" 开的是映射占位：原地转成列表。
+			if lastKey.set && top.m != nil && indent > stack[len(stack)-2].indent {
+				lst := []any{}
+				top.listOwner, top.listOwnerKey = lastKey.parent, lastKey.key
+				top.listOwner[top.listOwnerKey] = lst
+				top.m = nil
+				top.list = lst
+				lastKey.set = false
+			} else if top.list == nil {
+				return nil, fmt.Errorf("line %d: list item outside a list context", lineNo+1)
+			}
+			// pushList 追加列表项并回写归属方持有的切片，
+			// 避免 append 扩容后归属方仍引用旧切片头。
+			pushList := func(v any) {
+				top.list = append(top.list, v)
+				if top.listOwner != nil {
+					top.listOwner[top.listOwnerKey] = top.list
+				}
+			}
+
+			item := strings.TrimSpace(strings.TrimPrefix(body, "-"))
+			if item == "" {
+				// "-"：映射内容换行缩进续写。
+				m := map[string]any{}
+				pushList(m)
+				stack = append(stack, frame{indent: indent, m: m})
+				continue
+			}
+			// "- key: value"：列表项为映射，首键跟在破折号后。
+			if _, _, err := splitKeyValue(item, lineNo+1); err == nil {
+				m := map[string]any{}
+				pushList(m)
+				// 帧缩进取破折号列（indent），同项后续键必须缩进
+				// 到 > indent 才会挂到该映射。
+				stack = append(stack, frame{indent: indent, m: m})
+				top = &stack[len(stack)-1]
+				if err := setScalar(top, item, lineNo+1); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			// "- 标量"。
+			pushList(unquote(item))
+			continue
+		}
+
 		key, rest, err := splitKeyValue(body, lineNo+1)
 		if err != nil {
 			return nil, err
 		}
 
-		// 回退栈到缩入不高于当前行的层。
-		for len(stack) > 1 && stack[len(stack)-1].indent >= indent {
-			stack = stack[:len(stack)-1]
+		top = &stack[len(stack)-1]
+		if top.m == nil {
+			return nil, fmt.Errorf("line %d: unexpected key %q outside a mapping", lineNo+1, key)
 		}
-		parent := stack[len(stack)-1].m
 
 		if rest == "" {
-			// "key:" 开启子映射。
+			// "key:" 开启子节点（映射或列表，由后续行决定）。
+			// 先创建映射占位；下一行若是列表项则原地转列表。
 			child := map[string]any{}
-			parent[key] = child
+			top.m[key] = child
 			stack = append(stack, frame{indent: indent, m: child})
+			lastKey.parent = top.m
+			lastKey.key = key
+			lastKey.set = true
 			continue
 		}
 
-		parent[key] = unquote(strings.TrimSpace(rest))
+		if err := setScalar(top, body, lineNo+1); err != nil {
+			return nil, err
+		}
 	}
 
 	return root, nil

@@ -18,6 +18,9 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +34,9 @@ type Route struct {
 	Backend string
 	// StripPrefix 为 true 时，转发前把 Prefix 从请求路径中剥掉。
 	StripPrefix bool
+	// WebRoot 是该路由可选的静态站点目录：命中且文件存在时优先
+	// 伺服静态文件，否则反代到 Backend。空表示纯反代。
+	WebRoot string
 }
 
 // Router 是 HTTP 路径前缀路由表（最长前缀优先）。
@@ -77,7 +83,9 @@ type Proxy struct {
 	transport *http.Transport
 	// backends 缓存每个后端地址对应的 ReverseProxy。
 	backends map[string]*httputil.ReverseProxy
-	logger   *slog.Logger
+	// statics 缓存每个 web_root 对应的静态文件伺服器。
+	statics map[string]http.Handler
+	logger  *slog.Logger
 }
 
 // New 创建代理处理器。
@@ -99,6 +107,7 @@ func New(defaultBackend string, router *Router, connectTimeout time.Duration, tl
 		defaultBackend: defaultBackend,
 		router:         router,
 		backends:       make(map[string]*httputil.ReverseProxy),
+		statics:        make(map[string]http.Handler),
 		logger:         logger,
 	}
 	transport := &http.Transport{
@@ -122,19 +131,64 @@ func New(defaultBackend string, router *Router, connectTimeout time.Duration, tl
 }
 
 // ServeHTTP 实现 http.Handler：按路径前缀路由并转发。
+// 命中带 web_root 的路由时，静态文件存在则优先伺服（strip_prefix
+// 同样作用于静态路径），文件不存在继续反代到 Backend。
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	backend := p.defaultBackend
-	if rt, ok := p.router.Match(r.URL.Path); ok {
-		backend = rt.Backend
-		if rt.StripPrefix {
-			r.URL.Path = stripPathPrefix(r.URL.Path, rt.Prefix)
-			// Path 已重写，RawPath 不再与其一致，清空让
-			// httputil 重新按 Path 生成合法的线格式目标。
-			r.URL.RawPath = ""
+	if p.router != nil {
+		if rt, ok := p.router.Match(r.URL.Path); ok {
+			// 路由级静态站点：strip_prefix 后的路径在 web_root 下
+			// 能找到文件时直接伺服，否则照旧反代。
+			if rt.WebRoot != "" {
+				upath := r.URL.Path
+				if rt.StripPrefix {
+					upath = stripPathPrefix(upath, rt.Prefix)
+				}
+				if staticFileExists(rt.WebRoot, upath) {
+					if rt.StripPrefix {
+						r.URL.Path = upath
+						r.URL.RawPath = ""
+					}
+					p.staticHandler(rt.WebRoot).ServeHTTP(w, r)
+					return
+				}
+			}
+			backend = rt.Backend
+			if rt.StripPrefix {
+				r.URL.Path = stripPathPrefix(r.URL.Path, rt.Prefix)
+				// Path 已重写，RawPath 不再与其一致，清空让
+				// httputil 重新按 Path 生成合法的线格式目标。
+				r.URL.RawPath = ""
+			}
 		}
 	}
 	rp := p.backendProxy(backend)
 	rp.ServeHTTP(w, r)
+}
+
+// staticFileExists 判断 root 下 upath 是否存在可伺服的文件
+// （目录含 index.html 视为存在）。
+func staticFileExists(root, upath string) bool {
+	name := filepath.Join(root, filepath.FromSlash(path.Clean("/"+upath)))
+	st, err := os.Stat(name)
+	if err != nil {
+		return false
+	}
+	if st.IsDir() {
+		idx, err := os.Stat(filepath.Join(name, "index.html"))
+		return err == nil && !idx.IsDir()
+	}
+	return true
+}
+
+// staticHandler 返回 web_root 静态文件伺服器（按目录缓存）。
+func (p *Proxy) staticHandler(root string) http.Handler {
+	if h, ok := p.statics[root]; ok {
+		return h
+	}
+	h := http.FileServer(http.Dir(root))
+	p.statics[root] = h
+	return h
 }
 
 // stripPathPrefix 从 path 中剥掉 prefix；剥完为空时返回 "/"，

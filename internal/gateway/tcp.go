@@ -36,44 +36,103 @@ import (
 // 同时是请求行窥探上限（嗅探只 Peek 不消费，数据零丢失）。
 const sniffBufferSize = 4096
 
+// listenerResult 保存单个监听器的 Accept 退出结果。
+type listenerResult struct {
+	addr string
+	err  error
+}
+
 func (s *Server) listenAndServe() error {
-	ln, err := net.Listen("tcp", s.cfg.Server.Listen)
-	if err != nil {
-		return fmt.Errorf("gateway: listen on %s: %w", s.cfg.Server.Listen, err)
+	if len(s.ports) == 0 {
+		return errors.New("gateway: no listener configured")
 	}
-	if s.cfg.Server.TLSEnabled() {
-		reloader, cerr := newCertReloader(s.cfg.Server.TLSCertFile, s.cfg.Server.TLSKeyFile)
-		if cerr != nil {
-			_ = ln.Close()
-			return fmt.Errorf("gateway: load tls cert: %w", cerr)
-		}
-		// 不在 Listener 层整体包装 TLS：每条连接进入处理流程后按
-		// 首字节嗅探是否 TLS 握手（detectTLS），使同一端口同时
-		// 服务 HTTPS 与原始 TCP（非 TLS 连接不受影响）。
-		// GetCertificate 在每次 TLS 握手时按文件 mtime/size 热重载
-		// 证书：替换文件（含先删后写）后无需重启，新连接即用新证书。
-		s.tlsConfig = &tls.Config{ //nolint:gosec // MinVersion 显式设置
-			GetCertificate: reloader.GetCertificate,
-			MinVersion:     tls.VersionTLS12,
-		}
-	}
+
 	// 与 Shutdown 互斥：若关闭流程已开始，立即退出，避免监听器
 	// 注册前被跳过关闭导致 Accept 永久阻塞。
 	s.closeMu.Lock()
 	if s.closed {
 		s.closeMu.Unlock()
-		_ = ln.Close()
 		return ErrServerClosed
 	}
-	s.listener = ln
 	s.closeMu.Unlock()
 
-	s.logger.Info("gateway: listening",
-		"addr", s.cfg.Server.Listen,
-		"tls", s.cfg.Server.TLSEnabled(),
-		"backend", s.cfg.Backend,
-		"http_routes", len(s.cfg.Routes.HTTP))
+	// 先全部监听成功再开始服务：任一端口监听失败即整体失败并
+	// 关闭已建立的监听器（半启动状态不允许存在）。
+	var lns []net.Listener
+	byAddr := make(map[string]net.Listener, len(s.ports))
+	for _, pc := range s.ports {
+		ln, err := net.Listen("tcp", pc.cfg.Addr)
+		if err != nil {
+			for _, l := range lns {
+				_ = l.Close()
+			}
+			return fmt.Errorf("gateway: listen on %s: %w", pc.cfg.Addr, err)
+		}
+		lns = append(lns, ln)
+		// 按配置地址建立映射：监听器的实际地址可能与配置不同
+		//（如 "0.0.0.0:x" 实际为 "[::]:x"），不能按 LocalAddr 匹配。
+		byAddr[pc.cfg.Addr] = ln
+	}
 
+	// 按端口配置 TLS：各端口可用不同证书（各自热重载）。
+	for _, pc := range s.ports {
+		if pc.cfg.TLSEnabled() {
+			reloader, cerr := newCertReloader(pc.cfg.TLSCertFile, pc.cfg.TLSKeyFile)
+			if cerr != nil {
+				for _, l := range lns {
+					_ = l.Close()
+				}
+				return fmt.Errorf("gateway: load tls cert for %s: %w", pc.cfg.Addr, cerr)
+			}
+			// 不在 Listener 层整体包装 TLS：每条连接进入处理流程后按
+			// 首字节嗅探是否 TLS 握手（detectTLS），使同一端口同时
+			// 服务 HTTPS 与原始 TCP（非 TLS 连接不受影响）。
+			// GetCertificate 在每次 TLS 握手时按文件 mtime/size 热重载
+			// 证书：替换文件（含先删后写）后无需重启，新连接即用新证书。
+			pc.tlsCfg = &tls.Config{ //nolint:gosec // MinVersion 显式设置
+				GetCertificate: reloader.GetCertificate,
+				MinVersion:     tls.VersionTLS12,
+			}
+		}
+	}
+
+	// 注册监听器，供 Shutdown 统一关闭。
+	s.listenersMu.Lock()
+	s.listeners = lns
+	s.listenersMu.Unlock()
+
+	for _, pc := range s.ports {
+		s.logger.Info("gateway: listening",
+			"addr", pc.cfg.Addr,
+			"tls", pc.tlsCfg != nil,
+			"backend", pc.cfg.Backend,
+			"http_routes", len(pc.cfg.Routes))
+	}
+
+	// 每个监听器一个 Accept 循环，任一退出即触发整体退出。
+	results := make(chan listenerResult, len(lns))
+	for _, pc := range s.ports {
+		ln := byAddr[pc.cfg.Addr]
+		s.wg.Add(1)
+		go func(ln net.Listener, pc *portConfig) {
+			defer s.wg.Done()
+			err := s.acceptLoop(ln, pc)
+			results <- listenerResult{addr: pc.cfg.Addr, err: err}
+		}(ln, pc)
+	}
+
+	// 阻塞等待第一个退出的监听器。
+	res := <-results
+	// 关闭全部监听器，让其余 Accept 循环也退出。
+	s.closeListeners()
+	if res.err != nil && !errors.Is(res.err, ErrServerClosed) {
+		return res.err
+	}
+	return ErrServerClosed
+}
+
+// acceptLoop 是单个监听器的 Accept 循环。
+func (s *Server) acceptLoop(ln net.Listener, pc *portConfig) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -89,23 +148,33 @@ func (s *Server) listenAndServe() error {
 				time.Sleep(10 * time.Millisecond)
 				continue
 			}
-			s.logger.Error("gateway: accept failed", "listen", s.cfg.Server.Listen, "error", err)
+			s.logger.Error("gateway: accept failed", "listen", pc.cfg.Addr, "error", err)
 			return ErrServerClosed
 		}
 
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			s.handleTCPConn(conn)
+			s.handleTCPConn(conn, pc)
 		}()
 	}
 }
 
+// closeListeners 关闭全部监听器（幂等）。
+func (s *Server) closeListeners() {
+	s.listenersMu.Lock()
+	defer s.listenersMu.Unlock()
+	for _, ln := range s.listeners {
+		_ = ln.Close()
+	}
+	s.listeners = nil
+}
+
 // handleTCPConn 处理一条入站连接：配置了 TLS 证书时先按连接嗅探
 // 是否 TLS 握手（HTTPS 与原始 TCP 同端口共存）；之后嗅探命中 HTTP
-// 路由则走 HTTP 反向代理，否则原始透传到默认后端。
+// 路由则走 HTTP 反向代理，否则原始透传到该端口的默认后端。
 // 单条连接的 panic 不允许击穿进程。
-func (s *Server) handleTCPConn(client net.Conn) {
+func (s *Server) handleTCPConn(client net.Conn, pc *portConfig) {
 	defer func() {
 		// 单条连接的 panic 不允许击穿进程。
 		if r := recover(); r != nil {
@@ -124,8 +193,8 @@ func (s *Server) handleTCPConn(client net.Conn) {
 	// 击穿进程。握手失败时 detectTLS 返回 nil 连接，此处直接
 	// return，由 defer 关闭原始连接。
 	var br *bufio.Reader
-	if s.tlsConfig != nil {
-		tlsConn, tlsBR := s.detectTLS(client)
+	if pc.tlsCfg != nil {
+		tlsConn, tlsBR := s.detectTLS(client, pc)
 		if tlsConn == nil {
 			return
 		}
@@ -133,29 +202,29 @@ func (s *Server) handleTCPConn(client net.Conn) {
 	}
 
 	// 未配置路由：纯透传，不做 HTTP 嗅探（TLS 连接透传解密后的明文）。
-	if s.httpSrv == nil {
-		s.forwardRaw(client, br, nil)
+	if pc.httpSrv == nil {
+		s.forwardRaw(client, br, nil, pc)
 		return
 	}
 
 	// 嗅探阶段读取期限：请求行迟迟不来（如服务端先说话的协议）
 	// 则按原始透传处理。TLS 非 TLS 分支的 br 已含窥探字节，续用。
-	_ = client.SetDeadline(time.Now().Add(s.cfg.Server.ReadHeaderTimeout))
+	_ = client.SetDeadline(time.Now().Add(pc.cfg.ReadHeaderTimeout))
 	if br == nil {
 		br = bufio.NewReaderSize(client, sniffBufferSize)
 	}
-	route, prefix := s.sniffAndRoute(br)
+	route, prefix := s.sniffAndRoute(br, pc)
 	_ = client.SetDeadline(time.Time{})
 
 	if !route {
-		s.forwardRaw(client, br, prefix)
+		s.forwardRaw(client, br, prefix, pc)
 		return
 	}
 
 	// 命中 HTTP 路由：交给 http.Server 处理。已消费的请求行通过
 	// bufConn 重放，缓冲区中其余字节完整续读，零丢失。
 	l := newOneConnListener(&bufConn{Conn: client, prefix: prefix, r: br})
-	_ = s.httpSrv.Serve(l) // 阻塞至连接结束或 Shutdown 关闭该监听
+	_ = pc.httpSrv.Serve(l) // 阻塞至连接结束或 Shutdown 关闭该监听
 }
 
 // tlsRecordProbeLen 是 TLS record 头长度：内容类型(1) + 版本(2) +
@@ -182,9 +251,9 @@ func isTLSRecordHead(head []byte) bool {
 //     含已窥探字节的缓冲读器，已收字节零丢失地进入后续透传/
 //     HTTP 分流；
 //   - 确认是 TLS 但握手失败时返回 (nil, nil)，连接将被关闭。
-func (s *Server) detectTLS(client net.Conn) (net.Conn, *bufio.Reader) {
+func (s *Server) detectTLS(client net.Conn, pc *portConfig) (net.Conn, *bufio.Reader) {
 	br := bufio.NewReaderSize(client, sniffBufferSize)
-	_ = client.SetDeadline(time.Now().Add(s.cfg.Server.ReadHeaderTimeout))
+	_ = client.SetDeadline(time.Now().Add(pc.cfg.ReadHeaderTimeout))
 
 	head, err := br.Peek(tlsRecordProbeLen)
 	if err != nil {
@@ -199,7 +268,7 @@ func (s *Server) detectTLS(client net.Conn) (net.Conn, *bufio.Reader) {
 		return client, br
 	}
 
-	tc := tls.Server(&prefixConn{Conn: client, r: br}, s.tlsConfig)
+	tc := tls.Server(&prefixConn{Conn: client, r: br}, pc.tlsCfg)
 	err = tc.Handshake()
 	_ = client.SetDeadline(time.Time{})
 	if err != nil {
@@ -210,15 +279,18 @@ func (s *Server) detectTLS(client net.Conn) (net.Conn, *bufio.Reader) {
 	return tc, nil
 }
 
-// sniffAndRoute 判断连接是否走 HTTP 反向代理。
+// sniffAndRoute 判断连接是否走 HTTP 处理链。
 //
 // 快速路径：首字节不是大写字母（HTTP 方法首字母）时立即按原始
 // 透传处理，非 HTTP 协议零延迟。否则读取首个请求行——是合法的
-// "方法 目标 HTTP/x.y" 且路径命中前缀路由时返回 route=true
-// （请求行已消费，由 bufConn 续读后续内容）；未命中前缀或行不
-// 完整时返回 route=false 与已消费字节 prefix，供透传前冲刷，
+// "方法 目标 HTTP/x.y" 时返回 route=true：
+//   - 端口配置了路由表且路径命中某条前缀：走反代；
+//   - 端口未配置路由（仅 web_root 的静态站点端口）或路径未命中：
+//     也交 HTTP 处理链（欢迎页/静态文件/回退反代均在链内完成）。
+//
+// 行不完整时返回 route=false 与已消费字节 prefix，供透传前冲刷，
 // 保证数据零丢失。
-func (s *Server) sniffAndRoute(br *bufio.Reader) (route bool, prefix []byte) {
+func (s *Server) sniffAndRoute(br *bufio.Reader, pc *portConfig) (route bool, prefix []byte) {
 	head, err := br.Peek(1)
 	if err != nil || head[0] < 'A' || head[0] > 'Z' {
 		return false, nil
@@ -234,11 +306,20 @@ func (s *Server) sniffAndRoute(br *bufio.Reader) (route bool, prefix []byte) {
 	if !isReq || !strings.HasPrefix(target, "/") {
 		return false, line
 	}
+	// 端口未配置路由表时无需匹配，合法 HTTP 请求统一进 HTTP 链。
+	if pc.router == nil {
+		return true, line
+	}
 	path := target
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
-	if _, matched := s.router.Match(path); !matched {
+	// web_root 端口：未命中路由的 HTTP 请求也进 HTTP 链
+	//（静态文件伺服或回退反代，保持静态站点+API 混合部署）。
+	if pc.cfg.WebRoot != "" {
+		return true, line
+	}
+	if _, matched := pc.router.Match(path); !matched {
 		return false, line
 	}
 	return true, line
@@ -262,23 +343,23 @@ func parseRequestLine(line string) (method, target string, ok bool) {
 	if method != strings.ToUpper(method) {
 		return "", "", false
 	}
-	return method, line[i+1:j], true
+	return method, line[i+1 : j], true
 }
 
-// forwardRaw 把连接原始透传到默认后端。br 非空时客户端读取经过
-// 缓冲区；prefix 是嗅探阶段已消费、尚未发给后端的字节（透传前
+// forwardRaw 把连接原始透传到端口的默认后端。br 非空时客户端读取
+// 经过缓冲区；prefix 是嗅探阶段已消费、尚未发给后端的字节（透传前
 // 先写入后端，保证数据零丢失）。
-func (s *Server) forwardRaw(client net.Conn, br *bufio.Reader, prefix []byte) {
+func (s *Server) forwardRaw(client net.Conn, br *bufio.Reader, prefix []byte, pc *portConfig) {
 	start := time.Now()
 	var src io.Reader = client
 	if br != nil {
 		src = br
 	}
 
-	backend, err := net.DialTimeout("tcp", s.cfg.Backend, s.cfg.HTTP.ConnectTimeout)
+	backend, err := net.DialTimeout("tcp", pc.cfg.Backend, s.cfg.HTTP.ConnectTimeout)
 	if err != nil {
 		s.logger.Warn("gateway: tcp backend dial failed",
-			"backend", s.cfg.Backend,
+			"backend", pc.cfg.Backend,
 			"remote", client.RemoteAddr().String(),
 			"error", err)
 		return
@@ -402,15 +483,14 @@ func (l *oneConnListener) Addr() net.Addr { return l.conn.LocalAddr() }
 // shutdown 优雅关闭：关闭监听与 HTTP 服务器，
 // 等待活跃连接结束；超时后强制关闭全部剩余连接。
 func (s *Server) shutdown(ctx context.Context) error {
-	// 与 listenAndServe 互斥：listener 可能尚未注册（刚启动即关闭）。
-	s.closeMu.Lock()
-	if s.listener != nil {
-		_ = s.listener.Close()
-	}
-	s.closeMu.Unlock()
-	if s.httpSrv != nil {
-		// 关闭全部 one-conn 监听并等待 HTTP 连接排空。
-		_ = s.httpSrv.Shutdown(ctx)
+	// 关闭全部监听器（含尚未开始 Accept 的多端口监听器）。
+	s.closeListeners()
+	// 关闭全部端口的 HTTP 服务器：one-conn 监听被关闭并等待
+	// HTTP 连接排空。
+	for _, pc := range s.ports {
+		if pc.httpSrv != nil {
+			_ = pc.httpSrv.Shutdown(ctx)
+		}
 	}
 
 	done := make(chan struct{})

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,68 @@ func newTestProxy(t *testing.T, defaultBackend string, routes []Route) *Proxy {
 		t.Fatalf("New: %v", err)
 	}
 	return p
+}
+
+func TestProxyRouteWebRoot(t *testing.T) {
+	// 路由级 web_root：命中前缀且文件存在时伺服静态文件（含
+	// strip_prefix），文件不存在时反代到路由 Backend。
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>admin-site</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "app.css"), []byte("body{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var backendPath string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendPath = r.URL.Path
+		_, _ = io.WriteString(w, "backend-ok")
+	}))
+	defer backend.Close()
+	backendAddr := strings.TrimPrefix(backend.URL, "http://")
+
+	p := newTestProxy(t, backendAddr, []Route{
+		{Prefix: "/admin", Backend: backendAddr, StripPrefix: true, WebRoot: dir},
+	})
+	srv := httptest.NewServer(p)
+	defer srv.Close()
+	client := srv.Client()
+
+	// 1) 静态文件存在：伺服 web_root 下文件（strip_prefix 后的路径）。
+	resp, err := client.Get(srv.URL + "/admin/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || string(body) != "body{}" {
+		t.Errorf("static /admin/app.css: status=%d body=%q", resp.StatusCode, body)
+	}
+	// 目录请求 → index.html。
+	resp2, err := client.Get(srv.URL + "/admin/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != 200 || !strings.Contains(string(body2), "admin-site") {
+		t.Errorf("static /admin/: status=%d body=%q", resp2.StatusCode, body2)
+	}
+	if backendPath == "/app.css" || backendPath == "/" {
+		t.Errorf("static request should not reach backend, backendPath=%q", backendPath)
+	}
+
+	// 2) 文件不存在：反代到路由 Backend（剥前缀）。
+	resp3, err := client.Get(srv.URL + "/admin/api/users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body3, _ := io.ReadAll(resp3.Body)
+	resp3.Body.Close()
+	if resp3.StatusCode != 200 || string(body3) != "backend-ok" || backendPath != "/api/users" {
+		t.Errorf("fallback proxy: status=%d body=%q backendPath=%q", resp3.StatusCode, body3, backendPath)
+	}
 }
 
 func TestRouterLongestPrefixFirst(t *testing.T) {

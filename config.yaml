@@ -1,30 +1,77 @@
-# netgw 默认配置模板（发行包自带；安装后修改 /etc/netgw/config.yaml）。
-server:
-  listen: "0.0.0.0:8000"       # 直接监听地址
-  read_header_timeout: 10s     # 读取请求头的期限
-  # 同时配置以下两项即启用 HTTPS（TLS 在网关终止，证书建议使用绝对路径）：
-  # tls_cert: "/etc/netgw/cert.pem"
-  # tls_key: "/etc/netgw/key.pem"
+# netgw 配置示例（全部为注释，实际使用时按需取消注释）。
+# 全部不配置时使用内置默认值：监听 0.0.0.0:7822，透传到 127.0.0.1:8080。
+#
+# ─────────────────────────────────────────────────────────
+# 必填 / 选填速查
+#   listeners          选填（缺省用默认端口，但配置了就至少一条完整条目）
+#   addr               必填
+#   backend            必填
+#   routes             选填
+#   routes.<prefix>.backend        必填（每条路由都必须有）
+#   routes.<prefix>.strip_prefix   选填，默认 false
+#   routes.<prefix>.web_root       选填
+#   web_root           选填（端口级静态站点）
+#   tls_cert / tls_key 选填，必须成对出现
+#   read_header_timeout 选填，默认 10s（listener 内配置则覆盖该端口）
+#   http.connect_timeout 选填，默认 5s
+#   logging.level      选填，默认 "info"
+#
+# ─────────────────────────────────────────────────────────
+# 生效顺序
+#
+# 非 HTTP 连接（首字节嗅探非 HTTP 方法）：
+#   整条原始透传 → backend（与 routes/web_root 无关）
+#
+# HTTP 请求（最长前缀优先）：
+#   1. /hello            → 内置欢迎页（配了 /hello 路由则被路由覆盖）
+#   2. 命中 routes 前缀  → 该路由 web_root 下文件存在 → 伺服静态文件
+#                        → 否则反代到该路由的 backend
+#   3. 未命中路由        → 端口 web_root 下文件存在 → 伺服静态文件
+#   4. 以上都不满足      → 反代到端口 backend
+#
+# 即：路由 > 静态文件 > 端口 backend 兜底；backend 永远是最后兜底，
+# 所以必填。配置 routes: "/" 会让所有 HTTP 请求命中第 2 步，
+# 端口 web_root 与步骤 3/4 对 HTTP 失效（仅剩透传兜底）。
+#
+# ─────────────────────────────────────────────────────────
+# TLS：tls_cert + tls_key 同时配置即启用 HTTPS。按连接首字节嗅探，
+# 同一端口同时服务 HTTPS 与原始 TCP；各端口可用不同证书；
+# 证书缺失或损坏时启动直接报错，不静默降级为 HTTP。
+#
+# ─────────────────────────────────────────────────────────
+# 注意：配置了 routes 或 web_root 的端口是"HTTP 感知"端口——合法
+# HTTP 请求进上面的处理链；未配置两者的端口 HTTP 请求也整条透传，
+# 零解析开销，适合 Minecraft 等任意协议。
+
+# 全局默认请求头读取期限（listener 未单独配置时生效）。选填。
+# read_header_timeout: 10s
+
+listeners:
+  # 例 1：混合端口——API 反代 + 静态站点共存
+  # - addr: "0.0.0.0:7822"                  # 必填
+  #   backend: "127.0.0.1:8080"             # 必填
+  #   routes:                               # 选填
+  #     "/api": "127.0.0.1:9091"            # 简写：前缀保留
+  #     "/web":                             # 完整写法：
+  #       backend: "127.0.0.1:9092"         #   必填
+  #       strip_prefix: true                #   选填 /web/x → 后端收到 /x
+  #       web_root: "/var/www/webadmin"     #   选填：见"生效顺序"第 2 步
+  #   web_root: "/var/www/mysite"           # 选填：见"生效顺序"第 3 步
+
+  # 例 2：HTTPS 端口——独立证书与后端
+  # - addr: "0.0.0.0:8443"
+  #   backend: "127.0.0.1:9090"
+  #   tls_cert: "/etc/netgw/cert.pem"       # 必须成对
+  #   tls_key: "/etc/netgw/key.pem"
+  #   read_header_timeout: 5s               # 端口级覆盖全局
+
+  # 例 3：纯透传端口——不配 routes/web_root，任意协议零开销透传
+  # - addr: "0.0.0.0:29000"
+  #   backend: "127.0.0.1:10000"
 
 http:
-  connect_timeout: 5s          # 连接后端超时
-  # HTTPS 后端为自签名证书时设为 true（跳过证书校验，仅建议测试环境）。
-  tls_skip_verify: false
-
-# 默认后端 TCP 地址：连接未命中任何 HTTP 前缀路由时，整条连接原始透传。
-backend: "127.0.0.1:8080"
-
-# 可选的 HTTP 路径前缀路由（最长前缀优先）。
-# 条目支持两种写法：
-#   "/path": "127.0.0.1:8080"     # 简写：透明转发，前缀保留
-#   "/path":                      # 完整：可配置剥掉前缀
-#     backend: "127.0.0.1:8080"
-#     strip_prefix: true         # /path/x → 后端收到 /x
-# routes:
-#   http:
-#     "/files":
-#       backend: "127.0.0.1:8080"
-#       strip_prefix: true
+  # connect_timeout: 5s          # 连接后端超时（全部端口共用），选填
+  # tls_skip_verify: false       # HTTPS 后端为自签证书时设 true（仅测试），选填
 
 logging:
-  level: "info"                # debug / info / warn / error
+  # level: "info"                # debug / info / warn / error，选填
